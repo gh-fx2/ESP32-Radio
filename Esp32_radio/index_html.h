@@ -1,5 +1,5 @@
 // index.html file in raw data format for PROGMEM
-//
+// Hardcoded downvolume=/upvolume= changed from 2 to 1. Bad design! (tcfkat 20210303)
 #define index_html_version 180102
 const char index_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
@@ -23,8 +23,8 @@ const char index_html[] PROGMEM = R"=====(
    <h1>** ESP32 Radio **</h1>
    <button class="button" onclick="httpGet('downpreset=1')">PREV</button>
    <button class="button" onclick="httpGet('uppreset=1')">NEXT</button>
-   <button class="button" onclick="httpGet('downvolume=2')">VOL-</button>
-   <button class="button" onclick="httpGet('upvolume=2')">VOL+</button>
+   <button class="button" onclick="httpGet('downvolume=1')">VOL-</button>
+   <button class="button" onclick="httpGet('upvolume=1')">VOL+</button>
    <button class="button" onclick="httpGet('mute')">(un)MUTE</button>
    <button class="button" onclick="httpGet('stop')">(un)STOP</button>
    <button class="button" onclick="httpGet('status')">STATUS</button>

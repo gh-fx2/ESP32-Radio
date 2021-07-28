@@ -163,19 +163,19 @@
 #define VERSION     "Mon, 19 Oct 2020 14:12:00 GMT"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
-#define UPDATEHOST  "smallenburg.nl"                    // Host for software updates
+#define UPDATEHOST  "unwx.de"                    // Host for software updates
 #define BINFILE     "/Arduino/Esp32_radio.ino.bin"      // Binary file name for update software
 #define TFTFILE     "/Arduino/ESP32-Radio.tft"          // Binary file name for update NEXTION image
 //
 // Define type of local filesystem(s).  See documentation.
-#define CH376                          // For CXH376 support (reading files from USB stick)
-#define SDCARD                         // For SD card support (reading files from SD card)
+//#define CH376                          // For CXH376 support (reading files from USB stick)
+//#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
 //#define OLED                         // 64x128 I2C OLED
-//#define DUMMYTFT                     // Dummy display
+#define DUMMYTFT                     // Dummy display
 //#define LCD1602I2C                   // LCD 1602 display with I2C backpack
-#define LCD2004I2C                   // LCD 2004 display with I2C backpack
+//#define LCD2004I2C                   // LCD 2004 display with I2C backpack
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
 //
@@ -227,6 +227,9 @@
 #define MQTT_SUBTOPIC     "command"           // Command to receive from MQTT
 //
 #define otaclient mp3client                   // OTA uses mp3client for connection to host
+#define VOLSTEPS  32                          // Total volume steps   (tcfkat 20210303)
+#define VOLMAX    (VOLSTEPS-1)                // Maximum volume setting (tcfkat 20210303)
+#define ENCIDLETO 40                          // Encoder idle timeout * 100ms (tcfkat 20210304)
 
 //**************************************************************************************************
 // Forward declaration and prototypes of various functions.                                        *
@@ -460,8 +463,8 @@ sv bool           singleclick = false ;                  // True if single click
 sv bool           doubleclick = false ;                  // True if double click detected
 sv bool           tripleclick = false ;                  // True if triple click detected
 sv bool           longclick = false ;                    // True if longclick detected
-enum enc_menu_t { VOLUME, PRESET, TRACK } ;              // State for rotary encoder menu
-enc_menu_t        enc_menu_mode = VOLUME ;               // Default is VOLUME mode
+enum enc_menu_t { PRESET, VOLUME, TRACK } ;              // State for rotary encoder menu (tcfkat 20210303)
+enc_menu_t        enc_menu_mode = PRESET ;               // Default is now PRESET mode (tcfkat 20210303)
 
 //
 struct progpin_struct                                    // For programmable input pins
@@ -543,13 +546,19 @@ touchpin_struct   touchpin[] =                           // Touch pins and progr
   // End of table
 } ;
 
+// Volume linearizing using logarithmic look up table (tcfkat 20210303)
+// Calculation: round(254 - (254 * log(x) / log(32))), with x = 1...32
+static const uint8_t vollut[VOLSTEPS] = {254, 203, 173, 152, 136, 123, 111, 102,
+                                          93,  85,  78,  72,  66,  61,  56,  51,
+                                          46,  42,  38,  34,  31,  27,  24,  21,
+                                          18,  15,  12,  10,   7,   5,   2,   0};
 
 //**************************************************************************************************
 // Pages, CSS and data for the webinterface.                                                       *
 //**************************************************************************************************
 #include "about_html.h"
-#include "config_html.h"
-#include "index_html.h"
+#include "config_html.h"      // Update omitted, see there. (tcfkat 20210305)
+#include "index_html.h"       // Hardcoded values changed. (tcfkat 20210303)
 #include "mp3play_html.h"
 #include "radio_css.h"
 #include "favicon_ico.h"
@@ -681,7 +690,7 @@ class VS1053
     int8_t        dreq_pin ;                       // Pin where DREQ line is connected
     int8_t        shutdown_pin ;                   // Pin where the shutdown line is connected
     int8_t        shutdownx_pin ;                  // Pin where the shutdown (inversed) line is connected
-    uint8_t       curvol ;                         // Current volume setting 0..100%
+    uint8_t       curvol ;                         // Current volume setting 0..VOLMAX (tcfkat 20210303)
     const uint8_t vs1053_chunk_size = 32 ;
     // SCI Register
     const uint8_t SCI_MODE          = 0x0 ;
@@ -747,6 +756,8 @@ class VS1053
     void        wram_write ( uint16_t address, uint16_t data ) ;
     uint16_t    wram_read ( uint16_t address ) ;
     void        output_enable ( bool ena ) ;             // Enable amplifier through shutdown pin(s)
+void  LoadUserCodes(void);
+void  LoadUserCode( const unsigned short* plugin,uint16_t size);
 
   public:
     // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
@@ -925,9 +936,11 @@ bool VS1053::testComm ( const char *header )
   return ( okay ) ;                                     // Return the result
 }
 
+#include "vs1053b-patches.h"
+
 void VS1053::begin()
 {
-  pinMode      ( dreq_pin,  INPUT ) ;                   // DREQ is an input
+  pinMode      ( dreq_pin,  INPUT_PULLUP ) ;            // DREQ is an input. Request from NW (tcfkat 20210305)
   pinMode      ( cs_pin,    OUTPUT ) ;                  // The SCI and SDI signals
   pinMode      ( dcs_pin,   OUTPUT ) ;
   digitalWrite ( dcs_pin,   HIGH ) ;                    // Start HIGH for SCI en SDI
@@ -951,6 +964,7 @@ void VS1053::begin()
   //printDetails ( "20 msec after reset" ) ;
   if ( testComm ( "Slow SPI, Testing VS1053 read/write registers..." ) )
   {
+//fx2:    LoadUserCodes();
     // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
     // when playing MP3.  You can modify the board, but there is a more elegant way:
     wram_write ( 0xC017, 3 ) ;                            // GPIO DDR = 3
@@ -979,15 +993,15 @@ void VS1053::begin()
 void VS1053::setVolume ( uint8_t vol )
 {
   // Set volume.  Both left and right.
-  // Input value is 0..100.  100 is the loudest.
+  // Input value is 0..VOLMAX.  VOLMAX is the loudest.  // (tcfkat 20210303)
   // Clicking reduced by using 0xf8 to 0x00 as limits.
   uint16_t value ;                                      // Value to send to SCI_VOL
-
+  if ( vol > VOLMAX)                                    // (tcfkat 20210303)
+    vol = VOLMAX;
   if ( vol != curvol )
   {
     curvol = vol ;                                      // Save for later use
-    value = map ( vol, 0, 100, 0xF8, 0x00 ) ;           // 0..100% to one channel
-    value = ( value << 8 ) | value ;
+    value = ( vollut[vol] << 8 ) | vollut[vol] ;        // (tcfkat 20210303)
     write_register ( SCI_VOL, value ) ;                 // Volume left and right
     if ( vol == 0 )                                     // Completely silence?
     {
@@ -1646,10 +1660,9 @@ void IRAM_ATTR timer100()
     }
   }
   // Handle rotary encoder. Inactivity counter will be reset by encoder interrupt
-  if ( ++enc_inactivity == 36000 )                // Count inactivity time
-  {
-    enc_inactivity = 1000 ;                       // Prevent wrap
-  }
+  // Changed, more efficient. (tcfkat 20210304)
+  if (enc_inactivity <= ENCIDLETO)                // Count inactivity time (turn or switch)
+    enc_inactivity++;
   // Now detection of single/double click of rotary encoder switch
   if ( clickcount )                               // Any click?
   {
@@ -2564,9 +2577,9 @@ void readIOprefs()
     { "pin_sd_cs",     &ini_block.sd_cs_pin,        -1 },
     { "pin_ch376_cs",  &ini_block.ch376_cs_pin,     -1 }, // CH376 CS for USB interface
     { "pin_ch376_int", &ini_block.ch376_int_pin,    -1 }, // CH376 INT for USB interfce
-    { "pin_vs_cs",     &ini_block.vs_cs_pin,        -1 }, // VS1053 pins
-    { "pin_vs_dcs",    &ini_block.vs_dcs_pin,       -1 },
-    { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      -1 },
+    { "pin_vs_cs",     &ini_block.vs_cs_pin,        5 }, // VS1053 pins
+    { "pin_vs_dcs",    &ini_block.vs_dcs_pin,       32 },
+    { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      4 },
     { "pin_shutdown",  &ini_block.vs_shutdown_pin,  -1 }, // Amplifier shut-down pin
     { "pin_shutdownx", &ini_block.vs_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
@@ -3146,6 +3159,7 @@ uint8_t FindNsID ( const char* ns )
 //**************************************************************************************************
 // Bubblesort the nvskeys.                                                                         *
 //**************************************************************************************************
+// Why not use librarys qsort()? (tcfkat 20210305)
 void bubbleSortKeys ( uint16_t n )
 {
   uint16_t i, j ;                                             // Indexes in nvskeys
@@ -3431,12 +3445,17 @@ void setup()
                ini_block.clk_server.c_str() ) ;          // GMT offset, daylight offset in seconds
   timeinfo.tm_year = 0 ;                                 // Set TOD to illegal
   // Init settings for rotary switch (if existing).
-  if ( ( ini_block.enc_clk_pin + ini_block.enc_dt_pin + ini_block.enc_sw_pin ) > 2 )
+  // if ( ( ini_block.enc_clk_pin + ini_block.enc_dt_pin + ini_block.enc_sw_pin ) > 2 )
+  // This is WRONG! If only ONE pin is configured ALL interrupts are attached! (tcfkat 20210305)
+  if ((ini_block.enc_clk_pin >= 0) && (ini_block.enc_dt_pin >= 0) && (ini_block.enc_sw_pin >= 0))
   {
     attachInterrupt ( ini_block.enc_clk_pin, isr_enc_turn,   CHANGE ) ;
     attachInterrupt ( ini_block.enc_dt_pin,  isr_enc_turn,   CHANGE ) ;
     attachInterrupt ( ini_block.enc_sw_pin,  isr_enc_switch, CHANGE ) ;
-    dbgprint ( "Rotary encoder is enabled" ) ;
+    dbgprint ( "Rotary encoder is enabled (%d/%d/%d)",
+               ini_block.enc_clk_pin,
+               ini_block.enc_dt_pin,
+               ini_block.enc_sw_pin) ; // Be more verbose (tcfkat 20210305)
   }
   else
   {
@@ -3990,13 +4009,13 @@ void chk_enc()
   int16_t        inx ;                                        // Position in string
   String         rt = "0" ;                                   // NodeID for random track
 
-  if ( enc_menu_mode != VOLUME )                              // In default mode?
+  if ( enc_menu_mode != PRESET )                              // In default mode? (tcfkat 20210303)
   {
-    if ( enc_inactivity > 40 )                                // No, more than 4 seconds inactive
+    if ( enc_inactivity > ENCIDLETO )                     // No, more than ENCIDLETO inactive (tcfkat 20210304)
     {
       enc_inactivity = 0 ;
-      enc_menu_mode = VOLUME ;                                // Return to VOLUME mode
-      dbgprint ( "Encoder mode back to VOLUME" ) ;
+      enc_menu_mode = PRESET ;                                // Return to PRESET mode (tcfkat 20210303)
+      dbgprint ( "Encoder mode back to PRESET" ) ;            // (tcfkat 20210303)
       tftset ( 2, (char*)NULL ) ;                             // Restore original text at bottom
     }
   }
@@ -4037,18 +4056,23 @@ void chk_enc()
   {
     dbgprint ( "Double click") ;
     doubleclick = false ;
-    enc_menu_mode = PRESET ;                                  // Swich to PRESET mode
-    dbgprint ( "Encoder mode set to PRESET" ) ;
-    tftset ( 3, "Turn to select station\n"                    // Show current option
-             "Press to confirm" ) ;
+    enc_menu_mode = VOLUME ;                                  // Switch to VOLUME mode (tcfkat 20210303)
+    dbgprint ( "Encoder mode set to VOLUME" ) ;               // (tcfkat 20210303)
+    tftset ( 3, "Turn to select volume");                     // Show current option (tcfkat 20210303)
+                                                              // "Press to confirm" omitted (tcfkat 20210304)
     enc_preset = ini_block.newpreset + 1 ;                    // Start with current preset + 1
   }
   if ( singleclick )
   {
     dbgprint ( "Single click") ;
     singleclick = false ;
-    switch ( enc_menu_mode )                                  // Which mode (VOLUME, PRESET, TRACK)?
+    switch ( enc_menu_mode )                                  // Which mode (PRESET, VOLUME, TRACK)?
     {
+      case PRESET :
+        currentpreset = -1 ;                                  // Make sure current is different
+        ini_block.newpreset = enc_preset ;                    // Make a definite choice
+        tftset ( 3, "" ) ;                                    // Clear text
+        break ;
       case VOLUME :
         if ( muteflag )
         {
@@ -4059,19 +4083,15 @@ void chk_enc()
           tftset ( 3, "Mute" ) ;
         }
         muteflag = !muteflag ;                                // Mute/unmute
-        break ;
-      case PRESET :
-        currentpreset = -1 ;                                  // Make sure current is different
-        ini_block.newpreset = enc_preset ;                    // Make a definite choice
-        enc_menu_mode = VOLUME ;                              // Back to default mode
-        tftset ( 3, "" ) ;                                    // Clear text
+        enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
         break ;
       case TRACK :
         host = enc_filename ;                                 // Selected track as new host
         hostreq = true ;                                      // Request this host
-        enc_menu_mode = VOLUME ;                              // Back to default mode
+        enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
         tftset ( 3, "" ) ;                                    // Clear text
         break ;
+      default: break;                                         // Never forget! (tcfkat 20210303)
     }
   }
   if ( longclick )                                            // Check for long click
@@ -4106,9 +4126,9 @@ void chk_enc()
       {
         ini_block.reqvol = 0 ;                                // Limit to normal values
       }
-      else if ( ( ini_block.reqvol + rotationcount ) > 100 )
+      else if ( ( ini_block.reqvol + rotationcount ) > VOLMAX ) // (tcfkat 20210303)
       {
-        ini_block.reqvol = 100 ;                              // Limit to normal values
+        ini_block.reqvol = VOLMAX ;                           // Limit to normal values (tcfkat 20210303)
       }
       else
       {
@@ -5051,9 +5071,9 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = 0 ;                          // Yes, keep at zero
     }
-    if ( ini_block.reqvol > 100 )
+    if ( ini_block.reqvol > VOLMAX )                  // (tcfkat 20210303)
     {
-      ini_block.reqvol = 100 ;                        // Limit to normal values
+      ini_block.reqvol = VOLMAX ;                     // Limit to normal values (tcfkat 20210303)
     }
     muteflag = false ;                                // Stop possibly muting
     sprintf ( reply, "Volume is now %d",              // Reply new volume
