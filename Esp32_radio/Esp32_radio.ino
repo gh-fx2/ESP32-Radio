@@ -161,11 +161,17 @@
 //
 // Define the version number, also used for webserver as Last-Modified header and to
 // check version for update.  The format must be exactly as specified by the HTTP standard!
-#define VERSION     "Mon, 19 Oct 2020 14:12:00 GMT"
+// KA_PCB - default pinout for KaRadio32-PCB
+#define KA_PCB
+#define VERSION     "Mon, 18 Jan 2022 14:12:00 GMT"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
+#ifdef KA_PCB
+#define BINFILE     "/Arduino/KEsp32_radio.ino.bin"      // Binary file name for update software
+#else
 #define BINFILE     "/Arduino/Esp32_radio.ino.bin"      // Binary file name for update software
+#endif
 #define TFTFILE     "/Arduino/ESP32-Radio.tft"          // Binary file name for update NEXTION image
 //
 // Define type of local filesystem(s).  See documentation.
@@ -2511,6 +2517,24 @@ void readprogbuttons()
       }
     }
   }
+  // Now for the pin_fixed pins 0..34, identified by their GPIO pin number
+  for ( i = 0 ; i<35 ; i++ )   // Scan for all pins
+  {
+    sprintf ( mykey, "pin_fixed_%d", i ) ;                  // Form key in preferences
+    if ( nvssearch ( mykey ) )
+    {
+      val = nvsgetstr ( mykey ) ;                           // Get the contents
+      if ( val.length() )                                   // Does it exists?
+      {
+        pinMode( 12, OUTPUT );
+        pinnr = atoi(val.c_str());
+        digitalWrite(12,  pinnr ? HIGH : LOW );
+
+        dbgprint ( "pin_fixed_%d pin set to %s",i, pinnr?"HIGH":"LOW" ) ;
+      }
+    }
+  }
+  
 }
 
 
@@ -3323,6 +3347,9 @@ void setup()
   ini_block.bat100 = 0 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
+
+  readprogbuttons() ;                                    // Program the free input pins
+
 #if 0
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
@@ -3340,7 +3367,7 @@ void setup()
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
 #endif
-  readprogbuttons() ;                                    // Program the free input pins
+  
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
