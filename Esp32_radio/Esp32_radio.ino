@@ -7,7 +7,8 @@
 //  - nvs
 //  - Adafruit_ST7735
 //  - ArduinoOTA
-//  - PubSubClientenc_dt_pin
+//  - PubSubClient
+//  - enc_dt_pin
 //  - SD
 //  - FS
 //  - update
@@ -321,6 +322,7 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
+  int8_t         adc_vol_pin ;                        // can handle only 33 or -1
 } ;
 
 struct WifiInfo_t                                     // For list with WiFi info
@@ -376,7 +378,7 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
                 } ;
 
 // Global variables
-int               DEBUG = 1 ;                            // Debug on/off
+int               DEBUG = 0 ;                            // Debug on/off
 int               numSsid ;                              // Number of available WiFi networks
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
 ini_struct        ini_block ;                            // Holds configurable data
@@ -439,6 +441,7 @@ uint32_t          ir_1 = 1650 ;                          // Average duration of 
 struct tm         timeinfo ;                             // Will be filled by NTP server
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
+uint16_t          adcvol = 0;
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -560,6 +563,7 @@ static const uint8_t vollut[VOLSTEPS] = {254, 203, 173, 152, 136, 123, 111, 102,
 #include "config_html.h"      // Update omitted, see there. (tcfkat 20210305)
 #include "index_html.h"       // Hardcoded values changed. (tcfkat 20210303)
 #include "mp3play_html.h"
+#include "search_html.h"
 #include "radio_css.h"
 #include "favicon_ico.h"
 #include "defaultprefs.h"
@@ -2585,6 +2589,7 @@ void readIOprefs()
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
+    { "pin_adc_vol",   &ini_block.adc_vol_pin,      -1 },
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -3318,6 +3323,7 @@ void setup()
   ini_block.bat100 = 0 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
+#if 0
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3333,6 +3339,7 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
+#endif
   readprogbuttons() ;                                    // Program the free input pins
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
@@ -3927,7 +3934,8 @@ void handleSaveReq()
   }
   savetime = millis() ;                                   // Set time of last save
   nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
-  nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
+  if ( ini_block.adc_vol_pin == -1 )
+     nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
   nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
   nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
   nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
@@ -4866,6 +4874,11 @@ void handleFSf ( const String& pagename )
       p = mp3play_html ;
       l = sizeof ( mp3play_html ) ;
     }
+    else if ( pagename.indexOf ( "search.html" ) >= 0 ) // search page is in PROGMEM
+    {
+      p = search_html ;
+      l = sizeof ( search_html ) ;
+    }
     else if ( pagename.indexOf ( "about.html" ) >= 0 )  // About page is in PROGMEM
     {
       p = about_html ;
@@ -5534,6 +5547,12 @@ void handle_spec()
   }
   else
   {
+    if ( ini_block.adc_vol_pin != -1 )
+    {
+      ini_block.reqvol = adcvol/128;
+      if ( ini_block.reqvol > VOLMAX )
+		ini_block.reqvol = VOLMAX;
+    }
     vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
   }
   if ( reqtone )                                              // Request to change tone?
@@ -5581,6 +5600,11 @@ void spftask ( void * parameter )
     vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;                       // Pause for a short time
     adcval = ( 15 * adcval +                                        // Read ADC and do some filtering
                adc1_get_raw ( ADC1_CHANNEL_0 ) ) / 16 ;
+    if ( ini_block.adc_vol_pin == 33 )
+	{
+      adcvol = ( 15 * adcvol +                                      // volume
+              adc1_get_raw ( ADC1_CHANNEL_5 ) ) / 16 ;
+    }
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }

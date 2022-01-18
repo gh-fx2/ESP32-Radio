@@ -16,6 +16,7 @@ const char index_html[] PROGMEM = R"=====(
    <li><a class="pull-left active" href="/index.html">Control</a></li>
    <li><a class="pull-left" href="/config.html">Config</a></li>
    <li><a class="pull-left" href="/mp3play.html">MP3 player</a></li>
+   <li><a class="pull-left" href="/search.html">Search</a></li>
    <li><a class="pull-left" href="/about.html">About</a></li>
   </ul>
   <br><br><br>
