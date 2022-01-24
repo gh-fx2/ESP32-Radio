@@ -162,8 +162,8 @@
 // Define the version number, also used for webserver as Last-Modified header and to
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
-#define KA_PCB
-#define VERSION     "Mon, 18 Jan 2022 14:12:00 GMT"
+#undef KA_PCB
+#define VERSION     "Mon, 22 Jan 2022 17:28:00 GMT"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -448,6 +448,7 @@ struct tm         timeinfo ;                             // Will be filled by NT
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint16_t          adcvol = 0;
+uint8_t           adcvolreverse=0;
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -463,6 +464,7 @@ uint32_t                nvshandle = 0 ;                  // Handle for nvs acces
 uint8_t                 namespace_ID ;                   // Namespace ID found
 char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 std::vector<keyname_t> keynames ;                        // Keynames in NVS
+uint8_t                 enc_direct_switch = 1;           // rotary encoder change preset without click
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -1613,8 +1615,11 @@ void IRAM_ATTR timer10sec()
       if ( ( morethanonce > 0 ) ||                // Happened more than once?
            ( playlist_num > 0 ) )                 // Or playlist active?
       {
-        datamode = STOPREQD ;                     // Stop player
-        ini_block.newpreset++ ;                   // Yes, try next channel
+        ini_block.newpreset = currentpreset;      // Make a definite choice
+        currentpreset = -1 ;                      // Make sure current is different
+        // do not select next radio channel !
+        // datamode = STOPREQD ;                  // Stop player
+        // ini_block.newpreset++ ;                // Yes, try next channel
       }
       morethanonce++ ;                            // Count the fails
     }
@@ -3263,6 +3268,13 @@ void fillkeylist()
   bubbleSortKeys ( nvsinx ) ;                                   // Sort the keys
 }
 
+uint8_t BoolOfVal( const char * val )
+{
+  if (!strcasecmp(val,"true") || !strcasecmp(val,"yes") ||
+      !strcasecmp(val,"on") )
+		return 1;
+  return atoi(val) ? 1:0;
+}
 
 //**************************************************************************************************
 //                                           S E T U P                                             *
@@ -3349,6 +3361,24 @@ void setup()
                                                          // Rotary encoder
 
   readprogbuttons() ;                                    // Program the free input pins
+
+  if ( nvssearch ( "enc_direct_switch" ) )
+  {
+    String val = nvsgetstr ( "enc_direct_switch" ) ;     // Get the contents
+    if ( val.length() )                                  // Does it exists?
+    {
+		   enc_direct_switch = BoolOfVal(val.c_str());
+    }
+  }
+  
+  if ( nvssearch ( "adc_vol_reverse" ) )
+  {
+    String val = nvsgetstr ( "adc_vol_reverse" ) ;     // Get the contents
+    if ( val.length() )                                  // Does it exists?
+    {
+       adcvolreverse = BoolOfVal(val.c_str());
+    }
+  }
 
 #if 0
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
@@ -4195,6 +4225,10 @@ void chk_enc()
       }
       chomp ( tmp ) ;                                         // Remove garbage from description
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
+      if ( enc_direct_switch )
+	  {
+        ini_block.newpreset = enc_preset ;                    // Make a definite choice
+      }
       break ;
     case TRACK :
       enc_nodeID = selectnextFSnode ( rotationcount ) ;       // Select the next file on SD/USB
@@ -5576,7 +5610,10 @@ void handle_spec()
   {
     if ( ini_block.adc_vol_pin != -1 )
     {
-      ini_block.reqvol = adcvol/128;
+      if( adcvolreverse )
+         ini_block.reqvol = (4080-adcvol)/128;
+      else
+         ini_block.reqvol = adcvol/128;
       if ( ini_block.reqvol > VOLMAX )
 		ini_block.reqvol = VOLMAX;
     }
