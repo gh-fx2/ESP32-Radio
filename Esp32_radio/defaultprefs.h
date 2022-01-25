@@ -50,8 +50,8 @@ pin_enc_clk = 25                                     # GPIO Pin number for rotar
 pin_enc_dt = 26                                      # GPIO Pin number for rotary encoder "DT"
 pin_enc_sw = 27                                      # GPIO Pin number for rotary encoder "SW"
 #
-pin_tft_cs = -1                                      # GPIO Pin number for TFT "CS"
-pin_tft_dc = -1                                       # GPIO Pin number for TFT "DC"
+pin_tft_scl = -1                                     # GPIO Pin number for TFT "SCL" 22
+pin_tft_sda = -1                                     # GPIO Pin number for TFT "SDA" 21
 #
 pin_sd_cs = -1                                       # GPIO Pin number for SD card "CS"
 #
@@ -61,8 +61,8 @@ pin_vs_dreq = 4                                      # GPIO Pin number for VS105
 #pin_shutdownx = 4     # kaRadio32-pcb
 #pin_fixed_12 = 1      # kaRadio32-pcb
 #
-touch_04 = uppreset = 1
-touch_05 = downpreset = 1
+#touch_04 = uppreset = 1
+#touch_05 = downpreset = 1
 #
 )=====" ;
 
@@ -113,8 +113,8 @@ pin_enc_clk = 16                     # kaRadio32-pcb : GPIO Pin number for rotar
 pin_enc_dt = 17                      # kaRadio32-pcb : GPIO Pin number for rotary encoder "DT"
 pin_enc_sw = 5                       # kaRadio32-pcb : GPIO Pin number for rotary encoder "SW"
 #
-pin_tft_cs = -1                                      # GPIO Pin number for TFT "CS"
-pin_tft_dc = -1                                      # GPIO Pin number for TFT "DC"
+pin_tft_scl = -1                                      # GPIO Pin number for TFT "SCL" 14
+pin_tft_sda = -1                                      # GPIO Pin number for TFT "SDA" 13
 #
 pin_sd_cs = -1                                       # GPIO Pin number for SD card "CS"
 #

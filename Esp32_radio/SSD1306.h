@@ -394,6 +394,11 @@ SSD1306::SSD1306 ( uint8_t sda, uint8_t scl )
   i2c_master_write_byte ( cmd, 0x14, true ) ;                     // Enable charge pump
   i2c_master_write_byte ( cmd, OLED_CMD_SET_CONTRAST, true ) ;    // Set contrast
   i2c_master_write_byte ( cmd, 255, true ) ;                      // to 255
+  if( rotate_screen )
+  {
+     i2c_master_write_byte ( cmd, OLED_CMD_SET_SEGMENT_REMAP, true );
+     i2c_master_write_byte ( cmd, OLED_CMD_SET_COM_SCAN_MODE, true );
+  }
   i2c_master_write_byte ( cmd, OLED_CMD_DISPLAY_ON, true ) ;
   i2c_master_stop ( cmd ) ;
   i2c_master_cmd_begin ( I2C_NUM_0, cmd, 10 / portTICK_PERIOD_MS ) ;

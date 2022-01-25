@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #undef KA_PCB
-#define VERSION     "Mon, 22 Jan 2022 17:28:00 GMT"
+#define VERSION     "Tue, 25 Jan 2022 11:01:00 GMT"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -179,8 +179,8 @@
 //#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
-//#define OLED                         // 64x128 I2C OLED
-#define DUMMYTFT                     // Dummy display
+#define OLED                         // 64x128 I2C OLED
+//#define DUMMYTFT                     // Dummy display
 //#define LCD1602I2C                   // LCD 1602 display with I2C backpack
 //#define LCD2004I2C                   // LCD 2004 display with I2C backpack
 //#define ILI9341                      // ILI9341 240*320
@@ -384,7 +384,7 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
                 } ;
 
 // Global variables
-int               DEBUG = 0 ;                            // Debug on/off
+int               DEBUG = 1 ;                            // Debug on/off
 int               numSsid ;                              // Number of available WiFi networks
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
 ini_struct        ini_block ;                            // Holds configurable data
@@ -448,7 +448,7 @@ struct tm         timeinfo ;                             // Will be filled by NT
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint16_t          adcvol = 0;
-uint8_t           adcvolreverse=0;
+uint8_t           adc_vol_reverse=0;
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -465,6 +465,7 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 std::vector<keyname_t> keynames ;                        // Keynames in NVS
 uint8_t                 enc_direct_switch = 1;           // rotary encoder change preset without click
+uint8_t                 rotate_screen = 0;               // flip screen 180°
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -1377,6 +1378,7 @@ void tftset ( uint16_t inx, const char *str )
 {
   if ( inx < TFTSECS )                                  // Segment available on display
   {
+    if(inx==3)dbgprint("tftset(3,%s)",str?str:"nil");
     if ( str )                                          // String specified?
     {
       tftdata[inx].str = String ( str ) ;               // Yes, set string
@@ -1389,6 +1391,7 @@ void tftset ( uint16_t inx, String& str )
 {
   if ( inx < TFTSECS )                                  // Segment available on display
   {
+    if(inx==3)dbgprint("tftset(3,(string)%s)",str.c_str());
     tftdata[inx].str = str ;                            // Set string
     tftdata[inx].update_req = true ;                    // and request flag
   }
@@ -1817,8 +1820,8 @@ void IRAM_ATTR isr_enc_switch()
 //**************************************************************************************************
 void IRAM_ATTR isr_enc_turn()
 {
-  sv uint32_t     old_state = 0x0001 ;                          // Previous state
-  sv int16_t      locrotcount = 0 ;                             // Local rotation count
+  sv uint32_t     old_state = 0x0001;                          // Previous state
+  //sv int16_t      locrotcount = 0 ;                             // Local rotation count
   uint8_t         act_state = 0 ;                               // The current state of the 2 PINs
   uint8_t         inx ;                                         // Index in enc_state
   sv const int8_t enc_states [] =                               // Table must be in DRAM (iram safe)
@@ -1843,7 +1846,16 @@ void IRAM_ATTR isr_enc_turn()
   act_state = ( digitalRead ( ini_block.enc_clk_pin ) << 1 ) +
               digitalRead ( ini_block.enc_dt_pin ) ;
   inx = ( old_state << 2 ) + act_state ;                        // Form index in enc_states
-  locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+//  locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+  if ( inx == 11 )
+  {
+    rotationcount=1;
+  }
+  else if ( inx == 7 )
+  {
+    rotationcount=-1;
+  }
+#if 0
   if ( locrotcount == 4 )
   {
     rotationcount++ ;                                           // Divide by 4
@@ -1854,6 +1866,7 @@ void IRAM_ATTR isr_enc_turn()
     rotationcount-- ;                                           // Divide by 4
     locrotcount = 0 ;
   }
+#endif
   old_state = act_state ;                                       // Remember current status
   enc_inactivity = 0 ;
 }
@@ -2198,7 +2211,7 @@ void otastart()
   char* p ;
 
   p = dbgprint ( "OTA update Started" ) ;
-  tftset ( 2, p ) ;                                   // Set screen segment bottom part
+  tftset ( 3, p ) ;                                   // Set screen segment bottom part
 }
 
 
@@ -2542,6 +2555,45 @@ void readprogbuttons()
   
 }
 
+//**************************************************************************************************
+//                                       R E A D F L A G S                                         *
+//**************************************************************************************************
+// Read flag_00 .. 31                                                                              *
+//**************************************************************************************************
+void readFlags()
+{
+  char        mykey[20] ;                                   // For numerated key
+  int         i , inx;                                      // Loop control
+  String      val ;                                         // Contents of preference entry
+  String      para ;
+
+  for ( i = 0 ; i<32 ; i++ )    // Scan for all programmable pins
+  {
+    sprintf ( mykey, "flag_%02d", i ) ;                 // Form key in preferences
+    if ( nvssearch ( mykey ) )
+    {
+      para = nvsgetstr ( mykey ) ;                           // Get the contents
+      if ( !para.length() )                                   // Does it exists?
+         break;
+
+      para.trim();
+      inx = para.indexOf("=");
+      if ( inx > 0 )
+      {
+        val = para.substring(inx+1);
+        val.trim();
+        if ( para.startsWith("enc_direct_switch") )
+           enc_direct_switch = BoolOfVal(val.c_str());
+        if ( para.startsWith("adc_vol_reverse") )
+           adc_vol_reverse = BoolOfVal(val.c_str());
+        if ( para.startsWith("rotate_screen") )
+           rotate_screen = BoolOfVal(val.c_str());
+      }
+      continue;
+    }
+    break;
+  }  
+}
 
 //**************************************************************************************************
 //                                       R E S E R V E P I N                                       *
@@ -3357,30 +3409,16 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+  readFlags();
+  dbgprint("FLAG : enc_direct_switch = %d",enc_direct_switch);
+  dbgprint("FLAG : adc_vol_reverse   = %d",adc_vol_reverse);
+  dbgprint("FLAG : rotate_screen     = %d",rotate_screen);
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
 
   readprogbuttons() ;                                    // Program the free input pins
 
-  if ( nvssearch ( "enc_direct_switch" ) )
-  {
-    String val = nvsgetstr ( "enc_direct_switch" ) ;     // Get the contents
-    if ( val.length() )                                  // Does it exists?
-    {
-		   enc_direct_switch = BoolOfVal(val.c_str());
-    }
-  }
-  
-  if ( nvssearch ( "adc_vol_reverse" ) )
-  {
-    String val = nvsgetstr ( "adc_vol_reverse" ) ;     // Get the contents
-    if ( val.length() )                                  // Does it exists?
-    {
-       adcvolreverse = BoolOfVal(val.c_str());
-    }
-  }
-
-#if 0
+#if 1
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3428,7 +3466,7 @@ void setup()
       dsp_print ( "Starting..." "\n" "Version:" ) ;
       strncpy ( tmpstr, VERSION, 16 ) ;                  // Limit version length
       dsp_println ( tmpstr ) ;
-      dsp_println ( "By Ed Smallenburg" ) ;
+      dsp_println ( "... fx2 mod ..." ) ;
       dsp_update() ;                                     // Show on physical screen
     }
   }
@@ -4067,7 +4105,7 @@ String getFSfilename ( String &nodeID )
 //**************************************************************************************************
 void chk_enc()
 {
-  static int8_t  enc_preset ;                                 // Selected preset
+  static int8_t  enc_preset ;                                 // Selected preset  
   static String  enc_nodeID ;                                 // Node of selected track
   static String  enc_filename ;                               // Filename of selected track
   String         tmp ;                                        // Temporary string
@@ -4102,7 +4140,7 @@ void chk_enc()
     {
       enc_menu_mode = TRACK ;                                 // Swich to TRACK mode
       dbgprint ( "Encoder mode set to TRACK" ) ;
-      tftset ( 3, "Turn to select track\n"                    // Show current option
+      tftset ( 2, "Turn to select track\n"                    // Show current option
                "Press to confirm" ) ;
       enc_nodeID = selectnextFSnode ( +1 ) ;                  // Start with next file on SD/USB
       if ( enc_nodeID == "" )                                 // Current track available?
@@ -4123,7 +4161,7 @@ void chk_enc()
     doubleclick = false ;
     enc_menu_mode = VOLUME ;                                  // Switch to VOLUME mode (tcfkat 20210303)
     dbgprint ( "Encoder mode set to VOLUME" ) ;               // (tcfkat 20210303)
-    tftset ( 3, "Turn to select volume");                     // Show current option (tcfkat 20210303)
+    tftset ( 2, "Turn to select volume");                     // Show current option (tcfkat 20210303)
                                                               // "Press to confirm" omitted (tcfkat 20210304)
     enc_preset = ini_block.newpreset + 1 ;                    // Start with current preset + 1
   }
@@ -4136,16 +4174,16 @@ void chk_enc()
       case PRESET :
         currentpreset = -1 ;                                  // Make sure current is different
         ini_block.newpreset = enc_preset ;                    // Make a definite choice
-        tftset ( 3, "" ) ;                                    // Clear text
+        tftset ( 2, "" ) ;                                    // Clear text
         break ;
       case VOLUME :
         if ( muteflag )
         {
-          tftset ( 3, "" ) ;                                  // Clear text
+          tftset ( 2, "" ) ;                                  // Clear text
         }
         else
         {
-          tftset ( 3, "Mute" ) ;
+          tftset ( 2, "Mute" ) ;
         }
         muteflag = !muteflag ;                                // Mute/unmute
         enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
@@ -4154,7 +4192,7 @@ void chk_enc()
         host = enc_filename ;                                 // Selected track as new host
         hostreq = true ;                                      // Request this host
         enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
-        tftset ( 3, "" ) ;                                    // Clear text
+        tftset ( 2, "" ) ;                                    // Clear text
         break ;
       default: break;                                         // Never forget! (tcfkat 20210303)
     }
@@ -4181,6 +4219,7 @@ void chk_enc()
   }
   if ( rotationcount == 0 )                                   // Any rotation?
   {
+    enc_preset = currentpreset;
     return ;                                                  // No, return
   }
   dbgprint ( "Rotation count %d", rotationcount ) ;
@@ -4226,7 +4265,7 @@ void chk_enc()
       chomp ( tmp ) ;                                         // Remove garbage from description
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
       if ( enc_direct_switch )
-	  {
+	    {
         ini_block.newpreset = enc_preset ;                    // Make a definite choice
       }
       break ;
@@ -4240,7 +4279,7 @@ void chk_enc()
         tmp.remove ( 0, inx + 1 ) ;                           // Remove before the slash
       }
       dbgprint ( "Simplified %s", tmp.c_str() ) ;
-      tftset ( 3, tmp ) ;
+      tftset ( 2, tmp ) ;
     // Set screen segment bottom part
     default :
       break ;
@@ -4391,6 +4430,18 @@ void mp3loop()
       else
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
+        int inx = host.indexOf ( "#" ) ;                             // Get position of "#"
+        if ( inx > 0 )                                          // Hash sign present?
+        {
+          String sname=host.substring(inx+1);
+          sname.trim();
+          tftset( 3, sname.c_str() );
+        }
+        else
+        {
+          tftset( 3, "" );
+        }
+        dbgprint("name=%s",inx>0?host.c_str()+inx+1:"?");
         chomp ( host ) ;                                  // Get rid of part after "#"
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
@@ -4651,10 +4702,21 @@ void handlebyte_ch ( uint8_t b )
         }
         else if ( lcml.startsWith ( "icy-name:" ) )
         {
-          icyname = metaline.substring(9) ;            // Get station name
-          icyname.trim() ;                             // Remove leading and trailing spaces
-          tftset ( 2, icyname ) ;                      // Set screen segment bottom part
-          mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+          String sname = readhostfrompref() ;          // Lookup preset in preferences
+          int inx = sname.indexOf ( "#" ) ;               // Get position of "#"
+          if ( inx > 0 )                                 // Hash sign present?
+          {
+            sname=sname.substring(inx+1);
+            sname.trim();
+            tftset( 3, sname.c_str() );
+          }
+          else
+          {
+            icyname = metaline.substring(9) ;            // Get station name
+            icyname.trim() ;                             // Remove leading and trailing spaces
+            tftset ( 3, icyname ) ;                      // Set screen segment bottom part
+            mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+          }
         }
         else if ( lcml.startsWith ( "transfer-encoding:" ) )
         {
@@ -5610,7 +5672,7 @@ void handle_spec()
   {
     if ( ini_block.adc_vol_pin != -1 )
     {
-      if( adcvolreverse )
+      if( adc_vol_reverse )
          ini_block.reqvol = (4080-adcvol)/128;
       else
          ini_block.reqvol = adcvol/128;
