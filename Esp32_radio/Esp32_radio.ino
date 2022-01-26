@@ -1375,7 +1375,6 @@ void tftset ( uint16_t inx, const char *str )
 {
   if ( inx < TFTSECS )                                  // Segment available on display
   {
-    if(inx==3)dbgprint("tftset(3,%s)",str?str:"nil");
     if ( str )                                          // String specified?
     {
       tftdata[inx].str = String ( str ) ;               // Yes, set string
@@ -1388,7 +1387,6 @@ void tftset ( uint16_t inx, String& str )
 {
   if ( inx < TFTSECS )                                  // Segment available on display
   {
-    if(inx==3)dbgprint("tftset(3,(string)%s)",str.c_str());
     tftdata[inx].str = str ;                            // Set string
     tftdata[inx].update_req = true ;                    // and request flag
   }
@@ -2207,9 +2205,9 @@ bool connectwifi()
 //**************************************************************************************************
 void otastart()
 {
-  char* p ;
+static const  char* p ="OTA update Started" ;
 
-  p = dbgprint ( "OTA update Started" ) ;
+  dbgprint ( "OTA update Started" ) ;
   tftset ( 3, p ) ;                                   // Set screen segment bottom part
 }
 
@@ -4266,7 +4264,7 @@ void chk_enc()
       chomp ( tmp ) ;                                         // Remove garbage from description
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
       if ( enc_direct_switch )
-	    {
+	  {
         currentpreset = ini_block.newpreset;
         ini_block.newpreset += rotationcount ;                // Make a definite choice
         setdatamode ( STOPREQD ) ;                            // Force stop MP3 player
@@ -4472,6 +4470,7 @@ void mp3loop()
   {
     hostreq = false ;
     currentpreset = ini_block.newpreset ;                 // Remember current preset
+    SSD1306ShowPreset( currentpreset+1 );
     mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
     // Find out if this URL is on localhost (SD).
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
@@ -5504,6 +5503,8 @@ void displayinfo ( uint16_t inx )
   }
   if ( tft )                                               // TFT active?
   {
+    if ( inx >= 3 )
+      width -= 40;
     dsp_fillRect ( 0, p->y, width, p->height, BLACK ) ;    // Clear the space for new info
     if ( ( dsp_getheight() > 64 ) && ( p->y > 1 ) )        // Need and space for divider?
     {
