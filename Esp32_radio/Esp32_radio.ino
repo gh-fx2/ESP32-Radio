@@ -163,15 +163,11 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #undef KA_PCB
-#define VERSION     "Tue, 25 Jan 2022 11:01:00 GMT"
+#define VERSION     "Wed, 26 Jan 2022 10:19:00 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
-#ifdef KA_PCB
-#define BINFILE     "/Arduino/KEsp32_radio.ino.bin"      // Binary file name for update software
-#else
 #define BINFILE     "/Arduino/Esp32_radio.ino.bin"      // Binary file name for update software
-#endif
 #define TFTFILE     "/Arduino/ESP32-Radio.tft"          // Binary file name for update NEXTION image
 //
 // Define type of local filesystem(s).  See documentation.
@@ -468,6 +464,7 @@ uint8_t                 enc_direct_switch = 1;           // rotary encoder chang
 uint8_t                 rotate_screen = 0;               // flip screen 180°
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
+uint8_t           enc_reverse=0;                         // enc left-right changed
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
 sv int16_t        rotationcount = 0 ;                    // Current position of rotary switch
 sv uint16_t       enc_inactivity = 0 ;                   // Time inactive
@@ -1820,8 +1817,8 @@ void IRAM_ATTR isr_enc_switch()
 //**************************************************************************************************
 void IRAM_ATTR isr_enc_turn()
 {
-  sv uint32_t     old_state = 0x0001;                          // Previous state
-  //sv int16_t      locrotcount = 0 ;                             // Local rotation count
+  sv uint32_t     old_state = 0x0003;                          // Previous state
+  sv int16_t      locrotcount = 0 ;                             // Local rotation count
   uint8_t         act_state = 0 ;                               // The current state of the 2 PINs
   uint8_t         inx ;                                         // Index in enc_state
   sv const int8_t enc_states [] =                               // Table must be in DRAM (iram safe)
@@ -1846,24 +1843,26 @@ void IRAM_ATTR isr_enc_turn()
   act_state = ( digitalRead ( ini_block.enc_clk_pin ) << 1 ) +
               digitalRead ( ini_block.enc_dt_pin ) ;
   inx = ( old_state << 2 ) + act_state ;                        // Form index in enc_states
-//  locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+  locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+#if 0
   if ( inx == 11 )
   {
-    rotationcount=1;
+    rotationcount+=enc_reverse?-1:1;
   }
   else if ( inx == 7 )
   {
-    rotationcount=-1;
+    rotationcount+=enc_reverse?1:-1;
   }
-#if 0
+#endif
+#if 1
   if ( locrotcount == 4 )
   {
-    rotationcount++ ;                                           // Divide by 4
+    rotationcount+=enc_reverse?-1:1 ;                                           // Divide by 4
     locrotcount = 0 ;
   }
   else if ( locrotcount == -4 )
   {
-    rotationcount-- ;                                           // Divide by 4
+    rotationcount+=enc_reverse?1:-1;                                           // Divide by 4
     locrotcount = 0 ;
   }
 #endif
@@ -2588,6 +2587,8 @@ void readFlags()
            adc_vol_reverse = BoolOfVal(val.c_str());
         if ( para.startsWith("rotate_screen") )
            rotate_screen = BoolOfVal(val.c_str());
+        if ( para.startsWith("enc_reverse") )
+           enc_reverse = BoolOfVal(val.c_str());
       }
       continue;
     }
@@ -3413,6 +3414,7 @@ void setup()
   dbgprint("FLAG : enc_direct_switch = %d",enc_direct_switch);
   dbgprint("FLAG : adc_vol_reverse   = %d",adc_vol_reverse);
   dbgprint("FLAG : rotate_screen     = %d",rotate_screen);
+  dbgprint("FLAG : enc_reverse       = %d",enc_reverse);
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
 
@@ -4219,7 +4221,6 @@ void chk_enc()
   }
   if ( rotationcount == 0 )                                   // Any rotation?
   {
-    enc_preset = currentpreset;
     return ;                                                  // No, return
   }
   dbgprint ( "Rotation count %d", rotationcount ) ;
@@ -4266,7 +4267,9 @@ void chk_enc()
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
       if ( enc_direct_switch )
 	    {
-        ini_block.newpreset = enc_preset ;                    // Make a definite choice
+        currentpreset = ini_block.newpreset;
+        ini_block.newpreset += rotationcount ;                // Make a definite choice
+        setdatamode ( STOPREQD ) ;                            // Force stop MP3 player
       }
       break ;
     case TRACK :
@@ -4446,7 +4449,7 @@ void mp3loop()
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
-      if ( host != ""  )                                  // Preset in ini-file?
+      if ( host.length() > 0  )                                  // Preset in ini-file?
       {
         hostreq = true ;                                  // Force this station as new preset
       }
@@ -4456,6 +4459,13 @@ void mp3loop()
         dbgprint ( "No host for this preset" ) ;
         ini_block.newpreset = 0 ;                         // Wrap to first station
       }
+    }
+  }
+  else
+  {
+    if ( datamode == STOPPED )
+    {
+      hostreq = true ;                                    // autoplay: Request UNSTOP
     }
   }
   if ( hostreq )                                          // New preset or station?
