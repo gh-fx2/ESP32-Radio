@@ -53,7 +53,7 @@ scrseg_struct     tftdata[TFTSECS] =                        // Screen divided in
   { false, WHITE,   0,  8, "" },                            // 1 top line
   { false, CYAN,    8, 32, "" },                            // 4 lines in the middle
   { false, YELLOW, 40, 22, "" },                            // 3 lines at the bottom, leave room for indicator
-  { false, GREEN,  40, 22, "" }                             // 3 lines at the bottom for rotary encoder
+  { false, GREEN,  48, 14, "" }                             // 2 lines at the bottom for rotary encoder
 } ;
 
 // Various macro's to mimic the ST7735 version of display functions
