@@ -23,7 +23,7 @@
 #define dsp_getheight()     0                                      // Get height of screen
 #define dsp_update()                                               // Updates to the physical screen
 #define dsp_usesSPI()       false                                  // Does not use SPI
-#define SSD1306ShowPreset()                                        // big font preset
+#define dsp_showPreset(a)
 
 void* tft = NULL ;
 

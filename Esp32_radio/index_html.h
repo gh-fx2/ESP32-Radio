@@ -1,6 +1,6 @@
 // index.html file in raw data format for PROGMEM
 // Hardcoded downvolume=/upvolume= changed from 2 to 1. Bad design! (tcfkat 20210303)
-#define index_html_version 180102
+#define index_html_version 220130
 const char index_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>

@@ -238,6 +238,7 @@
 // Forward declaration and prototypes of various functions.                                        *
 //**************************************************************************************************
 void        displaytime ( const char* str, uint16_t color = 0xFFFF ) ;
+void        tm1637_displaytime( const char *str );
 void        showstreamtitle ( const char* ml, bool full = false ) ;
 void        handlebyte_ch ( uint8_t b ) ;
 void        handleFSf ( const String& pagename ) ;
@@ -311,6 +312,8 @@ struct ini_struct
   int8_t         tft_sda_pin ;                        // GPIO connected to SDA of I2C TFT screen
   int8_t         tft_bl_pin ;                         // GPIO to activate BL of display
   int8_t         tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
+  int8_t         tm1637_clk_pin;                      // GPIO TM1637 CLK
+  int8_t         tm1637_dio_pin;                      // GPIO TM1637 DIO
   int8_t         sd_cs_pin ;                          // GPIO connected to CS of SD card
   int8_t         vs_cs_pin ;                          // GPIO connected to CS of VS1053
   int8_t         vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
@@ -451,6 +454,10 @@ int16_t           scanios ;                              // TEST*TEST*TEST
 int16_t           scaniocount ;                          // TEST*TEST*TEST
 uint16_t          bltimer = 0 ;                          // Backlight time-out counter
 display_t         displaytype = T_UNDEFINED ;            // Display type
+uint8_t           dsp_brightness = 3 ;                   // tft->setBrightness() needed ?
+uint8_t           dsp_show_time = 1;                     // show time (on tm1637?)
+uint8_t           dsp_show_ip = 1;                       // show last segment of ip
+uint8_t           oled_128_32 = 1;                       // oled is not 128x64
 std::vector<WifiInfo_t> wifilist ;                       // List with wifi_xx info
 // nvs stuff
 nvs_page                nvsbuf ;                         // Space for 1 page of NVS info
@@ -1157,6 +1164,7 @@ VS1053* vs1053player ;
 #ifdef NEXTION
 #include "NEXTION.h"                                     // For NEXTION display
 #endif
+#include "TM1637.h"                                      // 4x 7-segment
 //
 // Include software for CH376
 #include "CH376.h"                                       // For CH376 USB interface
@@ -2190,6 +2198,16 @@ bool connectwifi()
     pfs2 = dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
     tftlog ( pfs2 ) ;
     pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+    if (( ini_block.tm1637_clk_pin >= 0 ) && ( ini_block.tm1637_dio_pin >= 0 ))
+    {
+      char *dot = strrchr(pfs,'.');
+      if ( dot )
+      {
+        uint16_t lseg = atoi(dot+1);
+        if ( lseg < 256 )
+           tm1637_showPreset( lseg+1000 );
+      }
+    }
   }
   tftlog ( pfs ) ;                                      // Show IP
   delay ( 3000 ) ;                                      // Allow user to read this
@@ -2587,6 +2605,14 @@ void readFlags()
            rotate_screen = BoolOfVal(val.c_str());
         if ( para.startsWith("enc_reverse") )
            enc_reverse = BoolOfVal(val.c_str());
+        if ( para.startsWith("dsp_brightness") )
+           dsp_brightness = val.toInt();
+        if ( para.startsWith("dsp_show_time") )
+           dsp_show_time = BoolOfVal(val.c_str());
+        if ( para.startsWith("dsp_show_ip") )
+           dsp_show_ip = BoolOfVal(val.c_str());
+        if ( para.startsWith("oled_128x32") )
+           oled_128_32 = BoolOfVal(val.c_str());
       }
       continue;
     }
@@ -2656,6 +2682,8 @@ void readIOprefs()
     { "pin_tft_dc",    &ini_block.tft_dc_pin,       -1 }, // Display SPI version
     { "pin_tft_scl",   &ini_block.tft_scl_pin,      -1 }, // Display I2C version
     { "pin_tft_sda",   &ini_block.tft_sda_pin,      -1 }, // Display I2C version
+    { "pin_tm1637_clk",   &ini_block.tm1637_clk_pin,      -1 }, // extra 7seg
+    { "pin_tm1637_dio",   &ini_block.tm1637_dio_pin,      -1 }, // extra 7seg
     { "pin_tft_bl",    &ini_block.tft_bl_pin,       -1 }, // Display backlight
     { "pin_tft_blx",   &ini_block.tft_blx_pin,      -1 }, // Display backlight (inversed logic)
     { "pin_sd_cs",     &ini_block.sd_cs_pin,        -1 },
@@ -3350,7 +3378,7 @@ void setup()
   // Version tests for some vital include files
   if ( about_html_version   < 170626 ) dbgprint ( wvn, "about" ) ;
   if ( config_html_version  < 180806 ) dbgprint ( wvn, "config" ) ;
-  if ( index_html_version   < 180102 ) dbgprint ( wvn, "index" ) ;
+  if ( index_html_version   < 220130 ) dbgprint ( wvn, "index" ) ;
   if ( mp3play_html_version < 180918 ) dbgprint ( wvn, "mp3play" ) ;
   if ( defaultprefs_version < 180816 ) dbgprint ( wvn, "defaultprefs" ) ;
   // Print some memory and sketch info
@@ -3452,6 +3480,7 @@ void setup()
     attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
                       isr_IR, CHANGE ) ;
   }
+  tm1637_begin();
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -4470,7 +4499,8 @@ void mp3loop()
   {
     hostreq = false ;
     currentpreset = ini_block.newpreset ;                 // Remember current preset
-    SSD1306ShowPreset( currentpreset+1 );
+    dsp_showPreset( currentpreset+1 );
+    tm1637_showPreset( currentpreset+1 );
     mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
     // Find out if this URL is on localhost (SD).
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
@@ -5535,7 +5565,7 @@ void gettime()
   static int16_t delaycount = 0 ;                           // To reduce number of NTP requests
   static int16_t retrycount = 100 ;
 
-  if ( tft )                                                // TFT used?
+  if ( tft || (( ini_block.tm1637_clk_pin >= 0 ) && ( ini_block.tm1637_dio_pin >= 0 )))  // TFT used?
   {
     if ( timeinfo.tm_year )                                 // Legal time found?
     {
@@ -5703,6 +5733,7 @@ void handle_spec()
     if ( NetworkFound  )                                      // Time available?
     {
       displaytime ( timetxt ) ;                               // Write to TFT screen
+      tm1637_displaytime ( timetxt );                         // additional tm1637
       displayvolume() ;                                       // Show volume on display
       displaybattery() ;                                      // Show battery charge on display
     }

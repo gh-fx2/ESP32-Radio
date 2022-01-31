@@ -45,6 +45,7 @@ Adafruit_ST7735*     tft = NULL ;                                  // For instan
 #define dsp_getheight()         128                                // Get height of screen
 #define dsp_update()                                               // Updates to the physical screen
 #define dsp_usesSPI()           true                               // Does use SPI
+#define dsp_showPreset(a)                                          // big font preset
 
 
 bool dsp_begin()
@@ -167,4 +168,3 @@ void displaytime ( const char* str, uint16_t color )
     }
   }
 }
-

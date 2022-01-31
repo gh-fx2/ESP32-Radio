@@ -36,6 +36,9 @@ class SSD1306
     void      fillRect ( uint8_t x, uint8_t y,     // Fill a rectangle
                          uint8_t w, uint8_t h,
                          uint8_t color ) ;
+    void      dsp_showPreset( int nr );
+    int       TextWidth( char *strg );
+
   private:
     struct page_struct*     ssdbuf = NULL ;
     void                    sendCommand ( uint8_t command ) ;
@@ -73,6 +76,8 @@ scrseg_struct     tftdata[TFTSECS] =                        // Screen divided in
 
 bool dsp_begin()
 {
+//  ini_block.tft_sda_pin = 22;
+//  ini_block.tft_scl_pin = 21;
   dbgprint ( "Init SSD1306, I2C pins %d,%d", ini_block.tft_sda_pin,
              ini_block.tft_scl_pin ) ;
   if ( ( ini_block.tft_sda_pin >= 0 ) &&
@@ -333,7 +338,7 @@ void SSD1306::print ( char c )
   }
 }
 
-int SSD1306TextWidth( char *strg )
+int SSD1306::TextWidth( char *strg )
 {
 	char *c = strg;
 	int w=0;
@@ -602,12 +607,17 @@ void displaytime ( const char* str, uint16_t color )
   }
 }
 
-void SSD1306ShowPreset( int preset )
+void dsp_showPreset( int preset )
 {
 	char *c;
 	char buf[4];
   int  w;
-	int	 dw = dsp_getwidth();
+  int  dw;
+
+  if ( !tft )
+     return;
+
+	dw = dsp_getwidth();
 	if ( preset < 0 )
 		return;
 	if ( preset > 99 )
@@ -616,7 +626,7 @@ void SSD1306ShowPreset( int preset )
   for( c=buf; *c; c++ )
     *c = *c-28;             /* 48->20, ... */
  
-	w = SSD1306TextWidth( buf );
+	w = tft->TextWidth( buf );
 	dsp_fillRect( dw-40,40,40,40, BLACK );		// clear space
   dsp_setCursor ( dw-(40+w)/2, 40 ) ;             // Prepare to show the info
 	dsp_print(buf);
