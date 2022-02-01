@@ -654,6 +654,7 @@ void dsp_showPreset( int preset )
 	char *c;
 	char buf[4];
   int  w, ow;
+  int y = oled_128_32 ? 8 : 40;
   int  dw;
 
   if ( !tft )
@@ -672,7 +673,7 @@ void dsp_showPreset( int preset )
   tft->preset = preset;
 	w = dsp_presetWidth();
   if ( ow > w )
-	  dsp_fillRect( dw-ow-2,8,ow+2,24, BLACK );		// clear space
-  dsp_setCursor ( dw-w-2, 8 ) ;             // Prepare to show the info
+	  dsp_fillRect( dw-ow-2,y,ow+2,24, BLACK );		// clear space
+  dsp_setCursor ( dw-w-2, y ) ;             // Prepare to show the info
 	dsp_print(buf);
 }
