@@ -23,13 +23,13 @@ const char about_html[] PROGMEM = R"=====(
   <center>
    <h1>** ESP32 Radio **</h1>
   </center>
-	<p>ESP32 Radio -- Webradio receiver for ESP32 and VS1053 MP3 module. Version 2022-01-30<br>
+	<p>ESP32 Radio -- Webradio receiver for ESP32 and VS1053 MP3 module.<br>
 	This project is documented at <a target="blank" href="https://github.com/Edzelf/ESP32-radio">Github</a>.</p>
 	<p>Author: Ed Smallenburg (ed@smallenburg.nl)<br>
   Mods . fx2<br>
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
 	App (Android): <a target="blank" href="https://play.google.com/store/apps/details?id=com.thunkable.android.sander542jochems.ESP_Radio">Sander Jochems</a><br>
-	Date: Jan 2022</p>
+	Date: 01 Feb 2022</p>
  </body>
 </html>
 )=====" ;

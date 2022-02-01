@@ -14,8 +14,6 @@
 #define YELLOW  RED | GREEN
 #define WHITE   RED | GREEN | BLUE
 
-#define SSD1306_NPAG    8             // Number of pages (text lines)
-
 // Data to display.  There are TFTSECS sections
 
 struct page_struct
@@ -37,7 +35,7 @@ class SSD1306
                          uint8_t w, uint8_t h,
                          uint8_t color ) ;
     void      dsp_showPreset( int nr );
-    int       TextWidth( char *strg );
+    uint8_t   preset = 100;          // lead to zero-width
 
   private:
     struct page_struct*     ssdbuf = NULL ;
@@ -45,6 +43,8 @@ class SSD1306
     const  uint8_t*         font ;                 // Font to use
     uint8_t                 xchar = 0 ;            // Current cursor position (text)
     uint8_t                 ychar = 0 ;            // Current cursor position (text)
+    uint8_t					ssd1306_npag = 8;	   // oled 128x64
+    
 } ;
 
 
@@ -70,14 +70,16 @@ scrseg_struct     tftdata[TFTSECS] =                        // Screen divided in
 #define dsp_fillRect(a,b,c,d,e) tft->fillRect ( a, b, c, d, e )    // Fill a rectangle
 #define dsp_erase()             tft->clear()                       // Clear the screen
 #define dsp_getwidth()          128                                // Get width of screen
-#define dsp_getheight()         64                                 // Get height of screen
 #define dsp_update()            tft->display()                     // Updates to the physical screen
 #define dsp_usesSPI()           false                              // Does not use SPI
 
+int dsp_getheight()
+{
+  return oled_128_32 ? 32 : 64;
+}
+
 bool dsp_begin()
 {
-//  ini_block.tft_sda_pin = 22;
-//  ini_block.tft_scl_pin = 21;
   dbgprint ( "Init SSD1306, I2C pins %d,%d", ini_block.tft_sda_pin,
              ini_block.tft_scl_pin ) ;
   if ( ( ini_block.tft_sda_pin >= 0 ) &&
@@ -292,6 +294,20 @@ const struct {
   { 135, 19 },  /* 8 */
   { 154, 18 }   /* 9 */
 };
+
+int dsp_presetWidth( )
+{
+  int val;
+  if ( !tft )
+    return 0;
+  if ( tft->preset > 99 )
+    return 0;
+  val = spfont[tft->preset%10].width;
+  if ( tft->preset > 9 )
+    val += spfont[tft->preset/10].width;
+  return val;
+}
+
 //***********************************************************************************************
 //                                S S D 1 3 0 6 :: P R I N T                                    *
 //***********************************************************************************************
@@ -299,6 +315,7 @@ const struct {
 //***********************************************************************************************
 void SSD1306::print ( char c )
 {
+  int dw;
   if ( ( c >= ' ' ) && ( c <= '~' ) )                    // Check the legal range
   {
     memcpy ( &ssdbuf[ychar].page[xchar],                 // Copy bytes for 1 character
@@ -310,46 +327,37 @@ void SSD1306::print ( char c )
   else if ( ( c >= 20 ) && ( c <= 29 ) )
   {
     int idx=c-20;
-	int max = dsp_getwidth()-xchar;	/* bytes left on this line */
+	  int max = dsp_getwidth()-xchar;	/* bytes left on this line */
     if ( max > spfont[idx].width )
        max = spfont[idx].width;
     memcpy(&ssdbuf[ychar].page[xchar], bigfont1+spfont[idx].x, max );
     ssdbuf[ychar].dirty = true ;
-	if ( ychar < 7 )
+	  if ( ychar < oled_128_32 ? 3:7 )
     {
-		memcpy(&ssdbuf[ychar+1].page[xchar], bigfont2+spfont[idx].x, max );
-		ssdbuf[ychar+1].dirty = true ;
-	}
-	if ( ychar < 6 )
+		  memcpy(&ssdbuf[ychar+1].page[xchar], bigfont2+spfont[idx].x, max );
+		  ssdbuf[ychar+1].dirty = true ;
+	  }
+	  if ( ychar < oled_128_32 ? 2:6 )
     {
-		memcpy(&ssdbuf[ychar+2].page[xchar], bigfont3+spfont[idx].x, max );
-		ssdbuf[ychar+2].dirty = true ;
-	}
+		  memcpy(&ssdbuf[ychar+2].page[xchar], bigfont3+spfont[idx].x, max );
+		  ssdbuf[ychar+2].dirty = true ;
+	  }
     xchar += max;
   }
   else if ( c == '\n' )                                  // New line?
   {
     xchar = dsp_getwidth() ;                             // Yes, force next line
   }
-  if ( xchar > ( dsp_getwidth() - SSD1306FONTWIDTH ) )   // End of line?
+  dw = dsp_getwidth();
+  if ( ychar )
+    dw-=dsp_presetWidth( );
+  if ( xchar > ( dw - SSD1306FONTWIDTH ) )   // End of line?
   {
     xchar = 0 ;                                          // Yes, mimic CR
     ychar = ( ychar + 1 ) & 7 ;                          // And LF
+    if (( ychar == 3 ) && oled_128_32 && (tft->preset < 100))
+      ychar = 4;  // invisible space
   }
-}
-
-int SSD1306::TextWidth( char *strg )
-{
-	char *c = strg;
-	int w=0;
-	for ( ; *c; c++ )
-	{
-  		if ( ( *c >= ' ' ) && ( *c <= '~' ) ) // Check the legal range
-			   w+=SSD1306FONTWIDTH;
-      else if ( ( *c >= 20 ) && ( *c <= 29 ) )
-			   w+=spfont[*c-20].width;
-	}
-	return w;
 }
 
 //***********************************************************************************************
@@ -375,9 +383,9 @@ void SSD1306::print ( const char* str )
 void SSD1306::display()
 {
   i2c_cmd_handle_t cmd ;
-  uint8_t          pg ;           // Page number 0..SSD1306_NPAG - 1
+  uint8_t          pg ;           // Page number 0..ssd1306_npag - 1
 
-  for ( pg = 0 ; pg < SSD1306_NPAG ; pg++ )
+  for ( pg = 0 ; pg < ssd1306_npag ; pg++ )
   {
     if ( ssdbuf[pg].dirty )
     {
@@ -404,7 +412,7 @@ void SSD1306::display()
 //***********************************************************************************************
 void SSD1306::clear()
 {
-  for ( uint8_t pg = 0 ; pg < SSD1306_NPAG ; pg++ )
+  for ( uint8_t pg = 0 ; pg < ssd1306_npag ; pg++ )
   {
     memset ( ssdbuf[pg].page, BLACK, dsp_getwidth() ) ;  // Clears all pixels of 1 page
     ssdbuf[pg].dirty = true ;                            // Force refresh
@@ -422,7 +430,7 @@ void SSD1306::clear()
 void SSD1306::setCursor ( uint8_t x, uint8_t y )          // Position the cursor
 {
   xchar = x % dsp_getwidth() ;
-  ychar = y / 8 % SSD1306_NPAG ;
+  ychar = y / 8 % 8 ;
 }
 
 
@@ -438,10 +446,13 @@ void SSD1306::fillRect ( uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t col
   uint8_t  pat ;                                          // Fill pattern
   uint8_t  xc, yc ;                                       // Running x and y in rectangle
   uint8_t* p ;                                            // Point into ssdbuf
+
+  if ( !w || !h )
+    return;
   
   for ( yc = y ; yc < ( y + h ) ; yc++ )                  // Loop vertically
   {
-    pg = ( yc / 8 ) % SSD1306_NPAG ;                      // Page involved
+    pg = ( yc / 8 ) % ssd1306_npag ;                      // Page involved
     pat = 1 << ( yc & 7 ) ;                               // Bit involved
     p = ssdbuf[pg].page + x ;                             // Point to right place
     for ( xc = x ; xc < ( x + w ) ; xc++ )                // Loop horizontally
@@ -480,21 +491,52 @@ SSD1306::SSD1306 ( uint8_t sda, uint8_t scl )
     1000000
   } ;
   font = SSD1306font ;
+  if ( oled_128_32 )
+  {
+    ssd1306_npag = 4;
+    tftdata[1].height = 16;
+    tftdata[2].y = 24;
+    tftdata[3].y = 24;
+    tftdata[2].height = 8;
+    tftdata[3].height = 8;
+  }
   i2c_param_config ( I2C_NUM_0, &i2c_config ) ;
   i2c_driver_install ( I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0 ) ;
   cmd = i2c_cmd_link_create() ;
   i2c_master_start ( cmd ) ;
   i2c_master_write_byte ( cmd, (OLED_I2C_ADDRESS << 1) | I2C_MASTER_WRITE, true ) ;
   i2c_master_write_byte ( cmd, OLED_CONTROL_BYTE_CMD_STREAM, true ) ;
-  i2c_master_write_byte ( cmd, OLED_CMD_SET_CHARGE_PUMP, true ) ;
-  i2c_master_write_byte ( cmd, 0x14, true ) ;                     // Enable charge pump
-  i2c_master_write_byte ( cmd, OLED_CMD_SET_CONTRAST, true ) ;    // Set contrast
-  i2c_master_write_byte ( cmd, 255, true ) ;                      // to 255
-  if( rotate_screen )
-  {
-     i2c_master_write_byte ( cmd, OLED_CMD_SET_SEGMENT_REMAP, true );
-     i2c_master_write_byte ( cmd, OLED_CMD_SET_COM_SCAN_MODE, true );
-  }
+    i2c_master_write_byte ( cmd, 0xae, true );  // display off
+    i2c_master_write_byte ( cmd, 0xd5, true );  // set displayclockdiv
+    i2c_master_write_byte ( cmd, 0x80, true );  //
+    i2c_master_write_byte ( cmd, 0xa8, true );  // set multiplex
+    i2c_master_write_byte ( cmd, oled_128_32 ? 0x1f: 0x3f, true );  //  1/32 , 1/64
+    i2c_master_write_byte ( cmd, 0xd3, true );  // display offset
+    i2c_master_write_byte ( cmd, 0x00, true );  //
+    i2c_master_write_byte ( cmd, 0x40, true );  // set start line to #0
+    i2c_master_write_byte ( cmd, 0x8d, true );  // charge-pump
+    i2c_master_write_byte ( cmd, 0x14, true );  // charge-pump on
+    i2c_master_write_byte ( cmd, 0x20, true );  // memory mode
+    i2c_master_write_byte ( cmd, 0x00, true );  // like ks0108
+    i2c_master_write_byte ( cmd, 0xda, true );  // set com pins
+    i2c_master_write_byte ( cmd, oled_128_32 ? 0x02 : 0x12, true );  //
+    i2c_master_write_byte ( cmd, 0x81, true );  // set contrast
+    i2c_master_write_byte ( cmd, (dsp_brightness * 32)%255, true );  //
+    i2c_master_write_byte ( cmd, 0xd9, true );  // set precharge
+    i2c_master_write_byte ( cmd, 0xf1, true );  //
+    i2c_master_write_byte ( cmd, 0xdb, true );  // set vcom detect
+    i2c_master_write_byte ( cmd, oled_128_32 ? 0x40 : 0x30, true );  //
+    i2c_master_write_byte ( cmd, 0x2e, true );  // deactivate scroll
+    i2c_master_write_byte ( cmd, 0xa4, true );  // display all on resume
+    i2c_master_write_byte ( cmd, 0xa6, true );  // normal display
+//  i2c_master_write_byte ( cmd, OLED_CMD_SET_CHARGE_PUMP, true ) ;
+//  i2c_master_write_byte ( cmd, 0x14, true ) ;                     // Enable charge pump
+//  i2c_master_write_byte ( cmd, OLED_CMD_SET_CONTRAST, true ) ;    // Set contrast
+//  i2c_master_write_byte ( cmd, 0x7f, true ) ;                      // to 255
+ 
+  i2c_master_write_byte ( cmd, rotate_screen ? 0xa1 : 0xa0, true );    // a1 = vert.flip
+  i2c_master_write_byte ( cmd, rotate_screen ? 0xc8 : 0xc0, true );    // c8 = hor.flip, c0 = normal
+ 
   i2c_master_write_byte ( cmd, OLED_CMD_DISPLAY_ON, true ) ;
   i2c_master_stop ( cmd ) ;
   i2c_master_cmd_begin ( I2C_NUM_0, cmd, 10 / portTICK_PERIOD_MS ) ;
@@ -512,7 +554,7 @@ SSD1306::SSD1306 ( uint8_t sda, uint8_t scl )
 //**************************************************************************************************
 void displaybattery()
 {
-  if ( tft )
+  if ( tft && !oled_128_32 )
   {
     if ( ini_block.bat0 < ini_block.bat100 )              // Levels set in preferences?
     {
@@ -548,7 +590,7 @@ void displaybattery()
 //**************************************************************************************************
 void displayvolume()
 {
-  if ( tft )
+  if ( tft && !oled_128_32 )
   {
     static uint8_t oldvol = 0 ;                         // Previous volume
     uint8_t        newvol ;                             // Current setting
@@ -611,12 +653,13 @@ void dsp_showPreset( int preset )
 {
 	char *c;
 	char buf[4];
-  int  w;
+  int  w, ow;
   int  dw;
 
   if ( !tft )
      return;
 
+  ow = dsp_presetWidth();
 	dw = dsp_getwidth();
 	if ( preset < 0 )
 		return;
@@ -625,9 +668,11 @@ void dsp_showPreset( int preset )
 	sprintf(buf,"%d",preset);
   for( c=buf; *c; c++ )
     *c = *c-28;             /* 48->20, ... */
- 
-	w = tft->TextWidth( buf );
-	dsp_fillRect( dw-40,40,40,40, BLACK );		// clear space
-  dsp_setCursor ( dw-(40+w)/2, 40 ) ;             // Prepare to show the info
+
+  tft->preset = preset;
+	w = dsp_presetWidth();
+  if ( ow > w )
+	  dsp_fillRect( dw-ow-2,8,ow+2,24, BLACK );		// clear space
+  dsp_setCursor ( dw-w-2, 8 ) ;             // Prepare to show the info
 	dsp_print(buf);
 }

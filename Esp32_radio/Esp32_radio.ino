@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #undef KA_PCB
-#define VERSION     "Wed, 26 Jan 2022 10:19:00 GMT+1"
+#define VERSION     "Tue, 01 Feb 2022 11:03:00 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -457,7 +457,7 @@ display_t         displaytype = T_UNDEFINED ;            // Display type
 uint8_t           dsp_brightness = 3 ;                   // tft->setBrightness() needed ?
 uint8_t           dsp_show_time = 1;                     // show time (on tm1637?)
 uint8_t           dsp_show_ip = 1;                       // show last segment of ip
-uint8_t           oled_128_32 = 1;                       // oled is not 128x64
+uint8_t           oled_128_32 = 0;                       // oled is not 128x64 ?
 std::vector<WifiInfo_t> wifilist ;                       // List with wifi_xx info
 // nvs stuff
 nvs_page                nvsbuf ;                         // Space for 1 page of NVS info
@@ -2186,6 +2186,11 @@ bool connectwifi()
   {
     localAP = true ;                                    // Not even a single AP defined
   }
+  if ( oled_128_32 )
+  {
+    dsp_setCursor ( 0, 8 ) ;                            // Prepare to show the info
+    dsp_fillRect( 0,0, 128, 32, BLACK );
+  }
   if ( localAP )                                        // Must setup local AP?
   {
     dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
@@ -3523,6 +3528,8 @@ void setup()
   vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
+  if ( oled_128_32 )
+    dsp_setCursor ( 0, 16 ) ;             				  // Prepare to show the info
   p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
   tftlog ( p ) ;                                         // On TFT too
   NetworkFound = connectwifi() ;                         // Connect to WiFi network
@@ -5533,8 +5540,8 @@ void displayinfo ( uint16_t inx )
   }
   if ( tft )                                               // TFT active?
   {
-    if ( inx >= 3 )
-      width -= 40;
+    if ( inx >= (oled_128_32 ? 1:3 ))
+      width -= dsp_presetWidth( );
     dsp_fillRect ( 0, p->y, width, p->height, BLACK ) ;    // Clear the space for new info
     if ( ( dsp_getheight() > 64 ) && ( p->y > 1 ) )        // Need and space for divider?
     {

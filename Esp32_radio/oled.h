@@ -31,6 +31,7 @@ U8G2_SSD1306_128X64_NONAME_1_SW_I2C* tft = NULL ;                         // For
 #define dsp_setTextColor(a)     tft->setDrawColor ( a )
 #define dsp_setCursor(a,b)      tft->setCursor ( a, b )                   // Position the cursor
 #define dsp_showPreset(a)                                                 // big font preset
+#define dsp_presetWidth()		0
 
 void dsp_begin()
 {

@@ -32,6 +32,7 @@ Ucglib_ILI9163_18x128x128_HWSPI* tft = NULL ;                         // For ins
                                                 ( a & 0xF800 ) >> 11 )
 #define dsp_setCursor(a,b)      tft->setPrintPos ( a, b )             // Position the cursor
 #define dsp_showPreset(a)                                              // big font preset
+#define dsp_presetWidth()		0
 
 void dsp_begin()
 {

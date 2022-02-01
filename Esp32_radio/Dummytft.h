@@ -24,6 +24,7 @@
 #define dsp_update()                                               // Updates to the physical screen
 #define dsp_usesSPI()       false                                  // Does not use SPI
 #define dsp_showPreset(a)
+#define dsp_presetWidth()		0
 
 void* tft = NULL ;
 

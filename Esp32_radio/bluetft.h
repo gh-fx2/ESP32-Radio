@@ -46,6 +46,7 @@ Adafruit_ST7735*     tft = NULL ;                                  // For instan
 #define dsp_update()                                               // Updates to the physical screen
 #define dsp_usesSPI()           true                               // Does use SPI
 #define dsp_showPreset(a)                                          // big font preset
+#define dsp_presetWidth()		0
 
 
 bool dsp_begin()
