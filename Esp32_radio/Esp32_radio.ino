@@ -162,8 +162,8 @@
 // Define the version number, also used for webserver as Last-Modified header and to
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
-#undef KA_PCB
-#define VERSION     "Tue, 01 Feb 2022 11:03:00 GMT+1"
+#define KA_PCB
+#define VERSION     "Fri, 25 Mar 2022 10:17:00 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -327,7 +327,8 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
-  int8_t         adc_vol_pin ;                        // can handle only 33 or -1
+  int8_t         adc_vol_pin ;                        // can handle only 33, 36, 39 or -1
+  int8_t         adc_pos_pin ;                    // can handle only 33, 36, 39 or -1
 } ;
 
 struct WifiInfo_t                                     // For list with WiFi info
@@ -428,6 +429,9 @@ bool              resetreq = false ;                     // Request to reset the
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
+bool              config_autoplay = false;
+bool              autoplay = false;
+uint16_t          aplaycnt=0;
 String            networks ;                             // Found networks in the surrounding
 uint16_t          mqttcount = 0 ;                        // Counter MAXMQTTCONNECTS
 int8_t            playingstat = 0 ;                      // 1 if radio is playing (for MQTT)
@@ -447,7 +451,12 @@ struct tm         timeinfo ;                             // Will be filled by NT
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint16_t          adcvol = 0;
+uint16_t          adcpos = 0;
+uint16_t          nadcpos = 0;
+uint16_t          maxpreset = 0;
+uint16_t          last_nadcpos = 0;
 uint8_t           adc_vol_reverse=0;
+uint8_t           adc_delog_vol=0;                       // delog values 2048 .. 4096 more linear
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -1133,7 +1142,6 @@ void VS1053::AdjustRate ( long ppm2 )                  // Fine tune the data rat
   // Write to AUDATA or CLOCKF checks rate and recalculates adjustment.
   write_register ( SCI_AUDATA,   read_register ( SCI_AUDATA ) ) ;
 }
-
 
 // The object for the MP3 player
 VS1053* vs1053player ;
@@ -2040,7 +2048,6 @@ void setdatamode ( datamode_t newmode )
 //**************************************************************************************************
 void stop_mp3client ()
 {
-
   while ( mp3client.connected() )
   {
     dbgprint ( "Stopping client" ) ;               // Stop connection to host
@@ -2604,25 +2611,32 @@ void readFlags()
         val.trim();
         if ( para.startsWith("enc_direct_switch") )
            enc_direct_switch = BoolOfVal(val.c_str());
-        if ( para.startsWith("adc_vol_reverse") )
+        else if ( para.startsWith("adc_vol_reverse") )
            adc_vol_reverse = BoolOfVal(val.c_str());
-        if ( para.startsWith("rotate_screen") )
+        else if ( para.startsWith("rotate_screen") )
            rotate_screen = BoolOfVal(val.c_str());
-        if ( para.startsWith("enc_reverse") )
+        else if ( para.startsWith("enc_reverse") )
            enc_reverse = BoolOfVal(val.c_str());
-        if ( para.startsWith("dsp_brightness") )
+        else if ( para.startsWith("dsp_brightness") )
            dsp_brightness = val.toInt();
-        if ( para.startsWith("dsp_show_time") )
+        else if ( para.startsWith("dsp_show_time") )
            dsp_show_time = BoolOfVal(val.c_str());
-        if ( para.startsWith("dsp_show_ip") )
+        else if ( para.startsWith("dsp_show_ip") )
            dsp_show_ip = BoolOfVal(val.c_str());
-        if ( para.startsWith("oled_128x32") )
+        else if ( para.startsWith("oled_128x32") )
            oled_128_32 = BoolOfVal(val.c_str());
+        else if ( para.startsWith("autoplay") )
+           config_autoplay = BoolOfVal(val.c_str());
+        else if ( para.startsWith("max_preset") )
+           maxpreset = val.toInt();
+        else if ( para.startsWith("adc_delog_vol") )
+           adc_delog_vol = BoolOfVal(val.c_str());
       }
       continue;
     }
     break;
-  }  
+  }
+  autoplay = config_autoplay;
 }
 
 //**************************************************************************************************
@@ -2703,6 +2717,7 @@ void readIOprefs()
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
     { "pin_adc_vol",   &ini_block.adc_vol_pin,      -1 },
+    { "pin_adc_pos",   &ini_block.adc_pos_pin,      -1 },
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -3794,6 +3809,7 @@ void handlehttpreply()
             if ( datamode != STOPPED )                      // Still playing?
             {
               setdatamode (  STOPREQD ) ;                   // Stop playing
+              autoplay = 0;
             }
             sndstr += readprefs ( true ) ;                  // Read and send
           }
@@ -3811,6 +3827,7 @@ void handlehttpreply()
             if ( datamode != STOPPED )                      // Still playing?
             {
               setdatamode ( STOPREQD ) ;                    // Stop playing
+              autoplay = 0;
             }
             cmdclient.print ( sndstr ) ;                    // Yes, send header
             n = listfstracks ( "/", 0, true ) ;             // Handle it
@@ -4497,9 +4514,13 @@ void mp3loop()
   }
   else
   {
-    if ( datamode == STOPPED )
+    if ( autoplay && ( datamode == STOPPED ))
+      aplaycnt++;
+
+    if ( aplaycnt == 800 )   // do autoplay around a second ?
     {
       hostreq = true ;                                    // autoplay: Request UNSTOP
+      aplaycnt=0;
     }
   }
   if ( hostreq )                                          // New preset or station?
@@ -5145,6 +5166,19 @@ const char* analyzeCmd ( const char* str )
   return res ;
 }
 
+int deLogVolume( int in )
+{
+  int re_adcvol=in;
+  float bas=0, rbas=0;
+  if ( in > 2048 )
+  {
+    bas = (float)in-2048;
+    rbas = bas/2048;
+    re_adcvol = (int)(pow(rbas,10)*2048+2048);
+  }
+  return re_adcvol;
+}
+
 
 //**************************************************************************************************
 //                                     A N A L Y Z E C M D                                         *
@@ -5270,9 +5304,11 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument.indexOf ( "preset_" ) >= 0 )     // Enumerated preset?
   { // Do not handle here
+    autoplay = config_autoplay;                       // but set back autoplay to configured value
   }
   else if ( argument.indexOf ( "preset" ) >= 0 )      // (UP/DOWN)Preset station?
   {
+    autoplay = config_autoplay;                       // now set back autoplay to configured value
     // If MP3 player is active: change track
     if ( localfile &&
          ( ( datamode & DATA ) != 0 ) &&              // MP# player active?
@@ -5322,10 +5358,13 @@ const char* analyzeCmd ( const char* par, const char* val )
 
     {
       setdatamode ( STOPREQD ) ;                      // Request STOP
+      autoplay = 0;
     }
     else
     {
       hostreq = true ;                                // Request UNSTOP
+      autoplay = config_autoplay;
+      aplaycnt=0;
     }
   }
   else if ( ( value.length() > 0 ) &&
@@ -5720,14 +5759,18 @@ void handle_spec()
   {
     if ( ini_block.adc_vol_pin != -1 )
     {
-      if( adc_vol_reverse )
-         ini_block.reqvol = (4080-adcvol)/128;
-      else
-         ini_block.reqvol = adcvol/128;
+      ini_block.reqvol = (adc_delog_vol ? deLogVolume(adcvol):adcvol)/128;
       if ( ini_block.reqvol > VOLMAX )
 		ini_block.reqvol = VOLMAX;
     }
     vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
+  }
+  if ((ini_block.adc_pos_pin != -1 ) && ( nadcpos != last_nadcpos ))
+  {
+    char txt[16];
+    sprintf(txt,"%d",nadcpos);
+    analyzeCmd( "preset", txt);
+    last_nadcpos = nadcpos;
   }
   if ( reqtone )                                              // Request to change tone?
   {
@@ -5775,11 +5818,49 @@ void spftask ( void * parameter )
     vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;                       // Pause for a short time
     adcval = ( 15 * adcval +                                        // Read ADC and do some filtering
                adc1_get_raw ( ADC1_CHANNEL_0 ) ) / 16 ;
-    if ( ini_block.adc_vol_pin == 33 )
+    if ( ini_block.adc_vol_pin != -1 )
 	{
-      adcvol = ( 15 * adcvol +                                      // volume
-              adc1_get_raw ( ADC1_CHANNEL_5 ) ) / 16 ;
-    }
+      int raw=0; int i;
+      adc1_channel_t ch=ADC1_CHANNEL_0;
+      if ( ini_block.adc_vol_pin == 33 )
+       ch = ADC1_CHANNEL_5;
+    else if ( ini_block.adc_vol_pin == 36 )
+       ch = ADC1_CHANNEL_0;
+    else if ( ini_block.adc_vol_pin == 39 )
+       ch = ADC1_CHANNEL_3;
+      
+      for ( i=0; i<10; i++ )
+      {
+	     raw += adc1_get_raw ( ch );
+      }
+      raw /=10;
+
+    if ( adc_vol_reverse )
+		  raw = 4095 - raw;
+    adcvol = ( 15 * adcvol + raw ) / 16 ;							// volume
+  }
+  if ( ini_block.adc_pos_pin != -1 )
+	{
+    int raw=0; int i;
+      adc1_channel_t ch=ADC1_CHANNEL_3;
+      if ( ini_block.adc_pos_pin == 33 )
+       ch = ADC1_CHANNEL_5;
+    else if ( ini_block.adc_pos_pin == 36 )
+       ch = ADC1_CHANNEL_0;
+    else if ( ini_block.adc_pos_pin == 39 )
+       ch = ADC1_CHANNEL_3;
+      
+      for ( i=0; i<10; i++ )
+      {
+       raw += adc1_get_raw ( ch );
+      }
+      raw /=10;
+      
+    if ( enc_reverse )
+		  raw = 4095 - raw;
+      adcpos = adcpos ? ( 15 * adcpos + raw ) / 16: raw;
+    nadcpos = (maxpreset>0) ? (int)adcpos*maxpreset/4096:0;
+  }
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }

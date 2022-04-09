@@ -15,6 +15,11 @@ const char defprefs_txt[] PROGMEM = R"=====(
 #gpio_17 = resume
 #gpio_34 = station = icecast.omroep.nl:80/radio1-bb-mp3
 #
+# fx2-flags
+flag_00 = enc_direct_switch = true
+flag_01 = adc_vol_reverse = false
+flag_02 = autoplay = true
+#
 # MQTT settings
 mqttbroker = none
 mqttport = 1883
@@ -34,8 +39,12 @@ tonelf = 0
 #
 preset = 0
 # Some preset examples
-preset_00 = icecast.ndr.de/ndr/ndrschlager/live/mp3/128/stream.mp3 # Ndr Schlager
-preset_01 = 138.201.252.6/brf_128    # Brf 91.4
+preset_00 = icecast.ndr.de/ndr/ndrschlager/live/mp3/128/stream.mp3 # NDR Schlager
+preset_01 = edge02.live-sm.absolutradio.de/absolut-bella/stream/mp3 # Absolut Bella
+preset_02 = 138.201.252.6/brf_128    # BRF 91.4
+preset_03 = streams.80s80s.de/web/aac-64 # 80s80s
+preset_04 = dispatcher.rndfnk.com/br/br1/obb/mp3/mid # Bayern 1
+preset_05 = ndr-ndr1radiomv-schwerin.cast.addradio.de/ndr/ndr1radiomv/schwerin/mp3/128/stream.mp3 # NDR-1 MV
 #
 # Clock offset and daylight saving time
 clk_server = pool.ntp.org                            # Time server to be used
@@ -78,6 +87,11 @@ const char defprefs_txt[] PROGMEM = R"=====(
 #gpio_17 = resume
 #gpio_34 = station = icecast.omroep.nl:80/radio1-bb-mp3
 #
+# fx2-flags
+flag_00 = enc_direct_switch = true
+flag_01 = adc_vol_reverse = false
+flag_02 = autoplay = true
+#
 # MQTT settings
 mqttbroker = none
 mqttport = 1883
@@ -97,8 +111,12 @@ tonelf = 0
 #
 preset = 0
 # Some preset examples
-preset_00 = icecast.ndr.de/ndr/ndrschlager/live/mp3/128/stream.mp3 # Ndr Schlager
-preset_01 = 138.201.252.6/brf_128    # Brf 91.4
+preset_00 = icecast.ndr.de/ndr/ndrschlager/live/mp3/128/stream.mp3 # NDR Schlager
+preset_01 = edge02.live-sm.absolutradio.de/absolut-bella/stream/mp3 # Absolut Bella
+preset_02 = 138.201.252.6/brf_128    # BRF 91.4
+preset_03 = streams.80s80s.de/web/aac-64 # 80s80s
+preset_04 = dispatcher.rndfnk.com/br/br1/obb/mp3/mid # Bayern 1
+preset_05 = ndr-ndr1radiomv-schwerin.cast.addradio.de/ndr/ndr1radiomv/schwerin/mp3/128/stream.mp3 # NDR-1 MV
 #
 # Clock offset and daylight saving time
 clk_server = pool.ntp.org                            # Time server to be used

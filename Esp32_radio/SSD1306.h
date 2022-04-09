@@ -305,7 +305,7 @@ int dsp_presetWidth( )
   val = spfont[tft->preset%10].width;
   if ( tft->preset > 9 )
     val += spfont[tft->preset/10].width;
-  return val;
+  return val+5;
 }
 
 //***********************************************************************************************
@@ -367,9 +367,18 @@ void SSD1306::print ( char c )
 //***********************************************************************************************
 void SSD1306::print ( const char* str )
 {
+  int oychar=ychar;
   while ( *str )                                // Print until delimeter
   {
     print ( *str ) ;                            // Print next character
+    if (( *str != '\n' ) && ( oychar != ychar ))
+    {  /* end of line ... now run to char behind\n */
+      for ( ; *str && (*str != '\n') ; str++ );
+      if ( !*str )
+        return;
+    }
+    else if ( *str == '\n' )
+      oychar = ychar;
     str++ ;
   }
 }
@@ -673,7 +682,7 @@ void dsp_showPreset( int preset )
   tft->preset = preset;
 	w = dsp_presetWidth();
   if ( ow > w )
-	  dsp_fillRect( dw-ow-2,y,ow+2,24, BLACK );		// clear space
-  dsp_setCursor ( dw-w-2, y ) ;             // Prepare to show the info
+	  dsp_fillRect( dw-ow,y,ow+2,24, BLACK );		// clear space
+  dsp_setCursor ( dw-w+5, y ) ;             // Prepare to show the info
 	dsp_print(buf);
 }

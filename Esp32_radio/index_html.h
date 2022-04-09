@@ -144,7 +144,7 @@ const char index_html[] PROGMEM = R"=====(
    <input type="text" width="600px" size="72" id="resultstr" placeholder="Waiting for a command...."><br>
    <br><br>
    <p>Find new radio stations at <a target="blank" href="http://www.internet-radio.com">http://www.internet-radio.com</a></p>
-   <p>Examples: us1.internet-radio.com:8105, skonto.ls.lv:8002/mp3, 85.17.121.103:8800</p><br>
+   <p>or at <a target="blank" href="https://www.radio-browser.info/">https://www.radio-browser.info/</a></p><br>
   </center>
   <script>
    function httpGet ( theReq )
