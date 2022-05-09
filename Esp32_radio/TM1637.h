@@ -25,6 +25,26 @@
 //  E |   | C
 //     ---
 //      D
+const uint8_t digitToSegmentRotated[] = {
+ // XGFEDCBA
+  0b00111111,    // 0
+  0b00110000,    // 1
+  0b01011011,    // 2
+  0b01111001,    // 3
+  0b01110100,    // 4
+  0b01101101,    // 5
+  0b01101111,    // 6
+  0b00111000,    // 7
+  0b01111111,    // 8
+  0b01111101,    // 9
+  0b01111110,    // A
+  0b01100111,    // b
+  0b00001111,    // C
+  0b01110011,    // d
+  0b01001111,    // E
+  0b01001110     // F
+  };
+
 const uint8_t digitToSegment[] = {
  // XGFEDCBA
   0b00111111,    // 0
@@ -45,13 +65,23 @@ const uint8_t digitToSegment[] = {
   0b01110001     // F
   };
 
+typedef struct _timedText
+{
+   uint8_t   data[4];
+   uint32_t  milliDone;
+   uint8_t   kind;          /* same kind will replaced */
+} timedText;
+
 class TM1637Display
 {
   public:
     TM1637Display ( uint8_t clk, uint8_t dio ) ;          // Constructor
     void      clear() ;                            // Clear buffer
     void      setSegments(const uint8_t *data, uint8_t len, uint8_t pos );
-    uint16_t   m_timeBlocked;
+    void      addTimed( uint8_t *data, uint16_t ms, uint8_t kind );
+    void      checkttFill();
+    timedText	m_tText[10];
+    int         m_ttFill;
 
   protected:
   void          bitDelay () ;
@@ -103,7 +133,7 @@ TM1637Display::TM1637Display ( uint8_t clk, uint8_t dio )
   m_brightness = DEFAULT_TM1637_BRIGHTNESS;
   m_bitDelay = DEFAULT_BIT_DELAY;
   m_value = 0;
-  m_timeBlocked = 0;
+  m_ttFill = 0;
 
   pinMode( m_pinClk, INPUT);
   pinMode( m_pinDIO, INPUT);
@@ -227,7 +257,7 @@ uint8_t TM1637Display::encodeDigit(uint8_t digit)
 // An empty string will force a refresh on next call.                                              *
 // A character on the screen is 8 pixels high and 6 pixels wide.                                   *
 //**************************************************************************************************
-void tm1637_displaytime ( const char* str )
+void tm1637_displayTime ( const char* str )
 {
   static char oldstr[9] = "........" ;             // For compare
   uint8_t     i,t, chg=0 ;  // Index in strings, index data
@@ -237,9 +267,11 @@ void tm1637_displaytime ( const char* str )
   if ( !tm1637 || !dsp_show_time || !str || (strlen(str)<8))
     return;
 
-  if ( tm1637->m_timeBlocked )
+  if ( tm1637->m_ttFill )
+		tm1637->checkttFill();
+
+  if ( tm1637->m_ttFill )
   {
-    tm1637->m_timeBlocked--;
     strcpy(oldstr,"........");                     // display complete changed
     return;
   }
@@ -261,12 +293,12 @@ void tm1637_displaytime ( const char* str )
      if ( t && (idx == ':' ))
      {
        if ( showSec )
-         data[t-1] |= 0x80;
+         data[tm1637_rotate ? t : t-1] |= 0x80;
      }
      else
      {
        if (( idx >= 48 ) && ( idx <= 57 ))
-         data[t] = digitToSegment[idx-48];
+         data[t] = tm1637_rotate ? digitToSegmentRotated[idx-48] : digitToSegment[idx-48];
        t++;
      }
      if ( oldstr[i] != str[i] )
@@ -276,14 +308,128 @@ void tm1637_displaytime ( const char* str )
   if ( chg )
     tm1637->setSegments( data, 4, 0 );
   else
-    tm1637->setSegments( data+1, 1, 1 );  // double-point only
+    tm1637->setSegments( data+1+(tm1637_rotate?1:0), 1, 1 );  // double-point only
+}
+
+void tm1637_fillData( const char *buf, uint8_t *data )
+{
+  int i;
+
+  for( i=0; i<4; i++ )
+  {
+    int idx = buf[i]-48;
+    if ( tm1637_rotate )
+    {
+      if (( idx >= 0 ) && ( idx <= 9 ))
+        data[3-i] = digitToSegmentRotated[idx];
+      else
+        data[3-i] = 0;
+      if (( buf[i] == '.' ) && (i<3))
+      {
+        memset(data,0,3-i);
+        break;
+      }
+    }
+    else
+    {
+      if (( idx >= 0 ) && ( idx <= 9 ))
+        data[i] = digitToSegment[idx];
+      else
+        data[i] = 0;
+      if (( buf[i] == '.' ) && (i<3))
+      {
+        memset(data+i+1,0,3-i);
+		    break;
+	    }
+    }
+  }
+}
+
+void TM1637Display::addTimed( uint8_t *data, uint16_t ms, uint8_t kind )
+{
+	uint8_t    idx = m_ttFill;
+    uint8_t    replace = 0;
+
+    for( idx=0; idx<m_ttFill; idx++ )
+    {
+      if ( m_tText[idx].kind == kind )
+      {
+        replace=1;
+		break;
+	  }
+    }
+	if ( idx == 10 )
+	  return;
+    memcpy(m_tText[idx].data,data,4);
+	m_tText[idx].milliDone = ms;
+    if ( !replace )
+	  m_ttFill++;
+
+	if ( !idx )	/* 1st one */
+	{
+	    m_tText[0].milliDone += millis();
+  		tm1637->setSegments(data,4,0);
+	}
+}
+
+void TM1637Display::checkttFill( )
+{
+  if ( !m_ttFill )
+    return;
+  if ( m_tText[0].milliDone > millis() )  /* not done */
+    return;
+
+  m_ttFill--;
+  if ( m_ttFill )
+  {
+    memcpy(m_tText,m_tText+1,m_ttFill*sizeof(timedText));
+  	m_tText[0].milliDone += millis();
+    setSegments(m_tText[0].data,4,0);
+  }
+}
+
+void tm1637_showIP( const char *ip )
+{
+  const char   *c;
+  int    i;
+  char   buf[16];
+  uint8_t data[] = { 0, 0, 0, 0 };
+
+  if ( !tm1637 )
+     return;
+
+  if ( tm1637_rotate )
+  {
+  data[3] = 0b00000110;     // I
+  data[2] = 0b01011110;     // P
+  data[1] = 0b10000000;     // :
+  }
+  else
+  {
+  data[0] = 0b00110000;     // I
+  data[1] = 0b11110011;     // P:
+  }
+
+  tm1637->addTimed( data, 2000, 0 );
+
+  tm1637_fillData( ip, data );  /* 1st num */
+  tm1637->addTimed( data, 1000, 1 );
+
+  c=ip;
+  for( i=0; i<3; i++ )
+  {
+    c=strchr(c+1,'.');
+    if ( !c )
+     break;
+    tm1637_fillData( c+1, data );  /* next num */
+    tm1637->addTimed( data, 1000,i+2 );
+  }
 }
 
 void tm1637_showPreset( int preset )
 {
   char   *c;
   char   buf[16];
-  int    i;
   uint8_t data[] = { 0, 0, 0, 0 };
 
   if ( !tm1637 )
@@ -291,20 +437,22 @@ void tm1637_showPreset( int preset )
 
   if ( preset < 0 )
   	return;
-  if ( preset > 999 )  /* maybe IP */
-    sprintf(buf,"%d___",(preset-1000));
+  sprintf(buf,"%4d",preset);
+
+  tm1637_fillData( buf, data );
+
+  if ( tm1637_rotate )
+    data[3] = 0b01011110; //  1.letter = P :       .1.1 111.
   else
-    sprintf(buf,"%4d",preset);
-  for( i=0; i<4; i++ )
-  {
-    int idx = buf[i]-48;
-    if (( idx >= 0 ) && ( idx <= 9 ))
-      data[i] = digitToSegment[idx];
-    else
-      data[i] = 0;
-  }
-  if ( preset < 1000 )
-    data[0] = 0x73; //         .111 ..11
-  tm1637->setSegments(data,4,0);
-  tm1637->m_timeBlocked = 10;  // show station for 10 seconds
+    data[0] = 0b01110011; //  1.letter = P :       .111 ..11
+
+  tm1637->addTimed( data, 5000, 99 );
+}
+
+void tm1637_loop( void )
+{
+  if ( !tm1637 )
+     return;
+
+	tm1637->checkttFill();
 }

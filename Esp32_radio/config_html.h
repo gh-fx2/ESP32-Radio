@@ -1,5 +1,5 @@
 // config.html file in raw data format for PROGMEM
-#define config_html_version 180806
+#define config_html_version 220427
 const char config_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
@@ -35,10 +35,34 @@ const char config_html[] PROGMEM = R"=====(
    <button class="button buttonr" onclick="httpGet('update')">Update</button>
    &nbsp;&nbsp;
    <button class="button" onclick="ldef('getdefs')">Default</button>
+   &nbsp;&nbsp;
+   <button class="button buttonb" onclick="wFile()">Export</button>
+   &nbsp;&nbsp;
+   <button class="button buttonb" onclick="f.click()">Import</button>
+   <input type="file" id="f" style="display:none;" accept="text/*"/>
     <br><input type="text" size="80" id="resultstr" placeholder="Waiting for input....">
     <br>
 
     <script>
+      f.addEventListener('change', rFile, false);
+      function rFile(e) {
+        if (!e.target.files[0]) return;
+        var r = new FileReader();
+        r.onload = function(e) {
+          prefs.value = e.target.result;
+          
+        };
+        r.readAsText(e.target.files[0]);
+      }
+      function wFile() {
+        var e = document.createElement('a');
+        e.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(prefs.value));
+        e.setAttribute('download', 'esp32radio_settings.txt');
+        e.style.display = 'none';
+        document.body.appendChild(e);
+        e.click();
+        document.body.removeChild(e);
+      }
       function httpGet ( theReq )
       {
         var theUrl = "/?" + theReq + "&version=" + Math.random() ;

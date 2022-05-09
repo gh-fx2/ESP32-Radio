@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Fri, 25 Mar 2022 10:17:00 GMT+1"
+#define VERSION     "Mon, 09 May 2022 12:30:25 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -181,6 +181,7 @@
 //#define LCD2004I2C                   // LCD 2004 display with I2C backpack
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
+
 //
 #include <nvs.h>
 #include <PubSubClient.h>
@@ -239,6 +240,7 @@
 //**************************************************************************************************
 void        displaytime ( const char* str, uint16_t color = 0xFFFF ) ;
 void        tm1637_displaytime( const char *str );
+void        ht1621_displaytime( const char *str );
 void        showstreamtitle ( const char* ml, bool full = false ) ;
 void        handlebyte_ch ( uint8_t b ) ;
 void        handleFSf ( const String& pagename ) ;
@@ -314,6 +316,9 @@ struct ini_struct
   int8_t         tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
   int8_t         tm1637_clk_pin;                      // GPIO TM1637 CLK
   int8_t         tm1637_dio_pin;                      // GPIO TM1637 DIO
+  int8_t         ht1621_cs_pin;                       // GPIO HT1621 CS
+  int8_t         ht1621_wr_pin;                       // GPIO HT1621 WR
+  int8_t         ht1621_data_pin;                     // GPIO HT1621 DATA
   int8_t         sd_cs_pin ;                          // GPIO connected to CS of SD card
   int8_t         vs_cs_pin ;                          // GPIO connected to CS of VS1053
   int8_t         vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
@@ -457,6 +462,9 @@ uint16_t          maxpreset = 0;
 uint16_t          last_nadcpos = 0;
 uint8_t           adc_vol_reverse=0;
 uint8_t           adc_delog_vol=0;                       // delog values 2048 .. 4096 more linear
+uint8_t           adc_vol_lowp=15;                       // (old*15+new)/16
+uint8_t           adc_pos_lowp=3;                        // (old*3)+new)/4
+uint8_t           ht1621_lcd_type=0;                     // kind of glass-lcd
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -478,6 +486,7 @@ char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 std::vector<keyname_t> keynames ;                        // Keynames in NVS
 uint8_t                 enc_direct_switch = 1;           // rotary encoder change preset without click
 uint8_t                 rotate_screen = 0;               // flip screen 180°
+uint8_t                 tm1637_rotate = 0;               // flip tm1637-display
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 uint8_t           enc_reverse=0;                         // enc left-right changed
@@ -1173,6 +1182,9 @@ VS1053* vs1053player ;
 #include "NEXTION.h"                                     // For NEXTION display
 #endif
 #include "TM1637.h"                                      // 4x 7-segment
+
+#include "HT1621.h"                                // 8x 16-segment
+
 //
 // Include software for CH376
 #include "CH376.h"                                       // For CH376 USB interface
@@ -2025,6 +2037,9 @@ void showstreamtitle ( const char *ml, bool full )
     strcpy ( p1, p2 ) ;                         // Shift 2nd part of title 2 or 3 places
   }
   tftset ( 1, streamtitle ) ;                   // Set screen segment text middle part
+#ifdef ENABLE_VIM878
+  vim878.timeText( streamtitle, 20000 );
+#endif
 }
 
 
@@ -2209,20 +2224,19 @@ bool connectwifi()
     ipaddress = WiFi.localIP().toString() ;             // Form IP address
     pfs2 = dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
     tftlog ( pfs2 ) ;
-    pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
-    if (( ini_block.tm1637_clk_pin >= 0 ) && ( ini_block.tm1637_dio_pin >= 0 ))
+    pfs = dbgprint ( "IP=%s", ipaddress.c_str() ) ;   // String to dispay on TFT
+    if (dsp_show_ip)
     {
-      char *dot = strrchr(pfs,'.');
-      if ( dot )
-      {
-        uint16_t lseg = atoi(dot+1);
-        if ( lseg < 256 )
-           tm1637_showPreset( lseg+1000 );
-      }
+      tm1637_showIP( ipaddress.c_str() );
+      ht1621_showIP( ipaddress.c_str() );
     }
+#ifdef ENABLE_VIM878
+    if ( dsp_show_ip && ( ini_block.vim878_cs_pin >= 0 ))
+      vim878.timeText( pfs, 10000 );
+#endif
   }
   tftlog ( pfs ) ;                                      // Show IP
-  delay ( 3000 ) ;                                      // Allow user to read this
+  //delay ( 3000 ) ;                                      // Allow user to read this
   tftlog ( "\f" ) ;                                     // Select new page if NEXTION 
   return ( localAP == false ) ;                         // Return result of connection
 }
@@ -2239,6 +2253,9 @@ static const  char* p ="OTA update Started" ;
 
   dbgprint ( "OTA update Started" ) ;
   tftset ( 3, p ) ;                                   // Set screen segment bottom part
+#ifdef ENABLE_VIM878
+  vim878.baseText( "UPDATE" );
+#endif
 }
 
 
@@ -2615,6 +2632,8 @@ void readFlags()
            adc_vol_reverse = BoolOfVal(val.c_str());
         else if ( para.startsWith("rotate_screen") )
            rotate_screen = BoolOfVal(val.c_str());
+        else if ( para.startsWith("tm1637_rotate") )
+           tm1637_rotate = BoolOfVal(val.c_str());
         else if ( para.startsWith("enc_reverse") )
            enc_reverse = BoolOfVal(val.c_str());
         else if ( para.startsWith("dsp_brightness") )
@@ -2628,9 +2647,22 @@ void readFlags()
         else if ( para.startsWith("autoplay") )
            config_autoplay = BoolOfVal(val.c_str());
         else if ( para.startsWith("max_preset") )
+        {
            maxpreset = val.toInt();
+           if ( !maxpreset )
+             maxpreset=1;
+        }
         else if ( para.startsWith("adc_delog_vol") )
            adc_delog_vol = BoolOfVal(val.c_str());
+        else if ( para.startsWith("adc_vol_lowp") )
+           adc_vol_lowp = val.toInt();
+        else if ( para.startsWith("adc_pos_lowp") )
+           adc_pos_lowp = val.toInt();
+        else if ( para.startsWith("ht1621_lcd_type") )
+        {
+          if ( val.startsWith("denver_tr36") )
+             ht1621_lcd_type = HT1621_T_DENVER_TR36;
+        }
       }
       continue;
     }
@@ -2703,6 +2735,9 @@ void readIOprefs()
     { "pin_tft_sda",   &ini_block.tft_sda_pin,      -1 }, // Display I2C version
     { "pin_tm1637_clk",   &ini_block.tm1637_clk_pin,      -1 }, // extra 7seg
     { "pin_tm1637_dio",   &ini_block.tm1637_dio_pin,      -1 }, // extra 7seg
+    { "pin_ht1621_cs",   &ini_block.ht1621_cs_pin,      -1 }, // 8x16seg
+    { "pin_ht1621_wr",   &ini_block.ht1621_wr_pin,      -1 }, // 8x16seg
+    { "pin_ht1621_data",   &ini_block.ht1621_data_pin,      -1 }, // 8x16seg
     { "pin_tft_bl",    &ini_block.tft_bl_pin,       -1 }, // Display backlight
     { "pin_tft_blx",   &ini_block.tft_blx_pin,      -1 }, // Display backlight (inversed logic)
     { "pin_sd_cs",     &ini_block.sd_cs_pin,        -1 },
@@ -3501,6 +3536,8 @@ void setup()
                       isr_IR, CHANGE ) ;
   }
   tm1637_begin();
+  ht1621_begin( ini_block.ht1621_cs_pin,  ini_block.ht1621_wr_pin,ini_block.ht1621_data_pin,ht1621_lcd_type);
+
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -3546,6 +3583,9 @@ void setup()
   if ( oled_128_32 )
     dsp_setCursor ( 0, 16 ) ;             				  // Prepare to show the info
   p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+#ifdef ENABLE_VIM878
+  vim878.timeText("WiFi",1200);
+#endif
   tftlog ( p ) ;                                         // On TFT too
   NetworkFound = connectwifi() ;                         // Connect to WiFi network
   dbgprint ( "Start server for commands" ) ;
@@ -4081,7 +4121,8 @@ void handleSaveReq()
     return ;
   }
   savetime = millis() ;                                   // Set time of last save
-  nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
+  if ( ini_block.adc_pos_pin == -1 )
+     nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
   if ( ini_block.adc_vol_pin == -1 )
      nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
   nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
@@ -4237,6 +4278,9 @@ void chk_enc()
         else
         {
           tftset ( 2, "Mute" ) ;
+#ifdef ENABLE_VIM878
+          vim878.timeText( "MUTE", 5000 );
+#endif
         }
         muteflag = !muteflag ;                                // Mute/unmute
         enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
@@ -4316,6 +4360,9 @@ void chk_enc()
       }
       chomp ( tmp ) ;                                         // Remove garbage from description
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
+#ifdef ENABLE_VIM878
+      vim878.baseText( (char*)tmp.c_str() );
+#endif
       if ( enc_direct_switch )
 	  {
         currentpreset = ini_block.newpreset;
@@ -4490,10 +4537,18 @@ void mp3loop()
           String sname=host.substring(inx+1);
           sname.trim();
           tftset( 3, sname.c_str() );
+#ifdef ENABLE_VIM878
+		  vim878.baseText( (char*)(sname.c_str()) );
+#endif
         }
         else
         {
+          char stext[16];
           tftset( 3, "" );
+		  sprintf(stext,"Prog: %2d",ini_block.newpreset);
+#ifdef ENABLE_VIM878
+		  vim878.baseText( stext );
+#endif
         }
         dbgprint("name=%s",inx>0?host.c_str()+inx+1:"?");
         chomp ( host ) ;                                  // Get rid of part after "#"
@@ -4529,6 +4584,7 @@ void mp3loop()
     currentpreset = ini_block.newpreset ;                 // Remember current preset
     dsp_showPreset( currentpreset+1 );
     tm1637_showPreset( currentpreset+1 );
+    ht1621_showPreset( currentpreset+1 );
     mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
     // Find out if this URL is on localhost (SD).
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
@@ -4599,6 +4655,8 @@ void loop()
   handleVolPub() ;                                  // See if time to publish volume
   chk_enc() ;                                       // Check rotary encoder functions
   check_CH376() ;                                   // Check Flashdrive insert/remove
+  tm1637_loop();
+  ht1621_loop();
 }
 
 
@@ -5611,7 +5669,8 @@ void gettime()
   static int16_t delaycount = 0 ;                           // To reduce number of NTP requests
   static int16_t retrycount = 100 ;
 
-  if ( tft || (( ini_block.tm1637_clk_pin >= 0 ) && ( ini_block.tm1637_dio_pin >= 0 )))  // TFT used?
+  if ( tft || ( ini_block.tm1637_clk_pin >= 0 ) ||
+    (ini_block.ht1621_cs_pin >= 0))  // TFT used?
   {
     if ( timeinfo.tm_year )                                 // Legal time found?
     {
@@ -5783,7 +5842,8 @@ void handle_spec()
     if ( NetworkFound  )                                      // Time available?
     {
       displaytime ( timetxt ) ;                               // Write to TFT screen
-      tm1637_displaytime ( timetxt );                         // additional tm1637
+      tm1637_displayTime ( timetxt );                         // additional tm1637
+      ht1621_displayTime ( timetxt );
       displayvolume() ;                                       // Show volume on display
       displaybattery() ;                                      // Show battery charge on display
     }
@@ -5819,14 +5879,14 @@ void spftask ( void * parameter )
     adcval = ( 15 * adcval +                                        // Read ADC and do some filtering
                adc1_get_raw ( ADC1_CHANNEL_0 ) ) / 16 ;
     if ( ini_block.adc_vol_pin != -1 )
-	{
+	  {
       int raw=0; int i;
       adc1_channel_t ch=ADC1_CHANNEL_0;
       if ( ini_block.adc_vol_pin == 33 )
        ch = ADC1_CHANNEL_5;
-    else if ( ini_block.adc_vol_pin == 36 )
+      else if ( ini_block.adc_vol_pin == 36 )
        ch = ADC1_CHANNEL_0;
-    else if ( ini_block.adc_vol_pin == 39 )
+      else if ( ini_block.adc_vol_pin == 39 )
        ch = ADC1_CHANNEL_3;
       
       for ( i=0; i<10; i++ )
@@ -5835,32 +5895,32 @@ void spftask ( void * parameter )
       }
       raw /=10;
 
-    if ( adc_vol_reverse )
-		  raw = 4095 - raw;
-    adcvol = ( 15 * adcvol + raw ) / 16 ;							// volume
-  }
-  if ( ini_block.adc_pos_pin != -1 )
-	{
-    int raw=0; int i;
+      if ( adc_vol_reverse )
+		    raw = 4095 - raw;
+      adcvol = adcvol ? ( adc_vol_lowp * adcvol + raw ) / (adc_vol_lowp+1): raw ;							// volume
+    }
+    if ( ini_block.adc_pos_pin != -1 )
+	  {
+      int raw=0; int i;
       adc1_channel_t ch=ADC1_CHANNEL_3;
       if ( ini_block.adc_pos_pin == 33 )
-       ch = ADC1_CHANNEL_5;
-    else if ( ini_block.adc_pos_pin == 36 )
-       ch = ADC1_CHANNEL_0;
-    else if ( ini_block.adc_pos_pin == 39 )
-       ch = ADC1_CHANNEL_3;
+        ch = ADC1_CHANNEL_5;
+      else if ( ini_block.adc_pos_pin == 36 )
+        ch = ADC1_CHANNEL_0;
+      else if ( ini_block.adc_pos_pin == 39 )
+        ch = ADC1_CHANNEL_3;
       
       for ( i=0; i<10; i++ )
       {
-       raw += adc1_get_raw ( ch );
+        raw += adc1_get_raw ( ch );
       }
       raw /=10;
-      
-    if ( enc_reverse )
-		  raw = 4095 - raw;
-      adcpos = adcpos ? ( 15 * adcpos + raw ) / 16: raw;
-    nadcpos = (maxpreset>0) ? (int)adcpos*maxpreset/4096:0;
-  }
+
+      if ( enc_reverse )
+        raw = 4095 - raw;
+      adcpos = adcpos ? ( adc_pos_lowp * adcpos + raw ) / (adc_pos_lowp+1): raw;
+      nadcpos = (maxpreset>0) ? (int)adcpos*maxpreset/4096:0;
+    }
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }

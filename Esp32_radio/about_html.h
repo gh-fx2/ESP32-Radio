@@ -1,6 +1,6 @@
 // about.html file in raw data format for PROGMEM
 //
-#define about_html_version 170626
+#define about_html_version 220427
 const char about_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
@@ -29,7 +29,7 @@ const char about_html[] PROGMEM = R"=====(
   Mods: fx2<br>
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
 	App (Android): <a target="blank" href="https://play.google.com/store/apps/details?id=com.thunkable.android.sander542jochems.ESP_Radio">Sander Jochems</a><br>
-	Date: 25 Mar 2022</p>
+	Date: 09 May 2022</p>
  </body>
 </html>
 )=====" ;
