@@ -40,6 +40,7 @@ public:
   void denverTr36_displayTime ( const char* str );
   void denverTr36_loop( void );
   void denverTr36_addTimed( uint8_t *data, uint32_t ms, uint8_t kind );
+  void denverTr36_infoUpdate( void );
 
 private:
 	int _cs_p;
@@ -96,6 +97,14 @@ HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t)
   if ( t == HT1621_T_VIM878 )
     _is_alpha = 1;
 	config();
+ 
+ if ( t == HT1621_T_DENVER_TR36 )
+ {
+    data[0] = 0x04;
+    data[2] = 0x40;
+    data[3] = 0x04;
+    data[5] = 0x40;
+ }
  update(data,8);
 }
 
@@ -172,6 +181,14 @@ void ht1621_showPreset( int preset )
     return;
   if ( ht1621->_type == HT1621_T_DENVER_TR36 )
     ht1621->denverTr36_showPreset( preset );
+}
+
+void ht1621_infoUpdate( void )
+{
+  if ( !ht1621 )
+    return;
+  if ( ht1621->_type == HT1621_T_DENVER_TR36 )
+    ht1621->denverTr36_infoUpdate( );
 }
 
 #include "VIM878.h"

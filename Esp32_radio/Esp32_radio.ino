@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Mon, 09 May 2022 12:30:25 GMT+1"
+#define VERSION     "Tue, 10 May 2022 18:52:25 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -2256,6 +2256,8 @@ static const  char* p ="OTA update Started" ;
 #ifdef ENABLE_VIM878
   vim878.baseText( "UPDATE" );
 #endif
+  ht1621_infoUpdate();
+  tm1637_infoUpdate();
 }
 
 

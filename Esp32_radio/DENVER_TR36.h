@@ -214,6 +214,15 @@ void HT1621Display::denverTr36_displayTime ( const char* str )
     update( data, 4 );
 }
 
+void HT1621Display::denverTr36_infoUpdate( void )
+{
+  uint8_t data[] = { 0b01101000, 0b01100110, 0b01100010, 0b01001100, 0b01101000, 0b00000000 };  // UPd
+  denverTr36Timed *t = (denverTr36Timed*)_timed;
+  if ( t )
+    t->tFill = 0;
+  denverTr36_addTimed( data, 20000, 50 );
+}
+
 void HT1621Display::denverTr36_loop( void )
 {
   if ( !_timed )

@@ -127,7 +127,7 @@ void tm1637_begin()
 //***********************************************************************************************
 TM1637Display::TM1637Display ( uint8_t clk, uint8_t dio )
 {
-  uint8_t data[] = { 0, 0, 0, 0};
+  uint8_t data[] = { 0x40, 0x40, 0x40, 0x40 };
   m_pinClk = clk;
   m_pinDIO = dio;
   m_brightness = DEFAULT_TM1637_BRIGHTNESS;
@@ -141,7 +141,7 @@ TM1637Display::TM1637Display ( uint8_t clk, uint8_t dio )
   digitalWrite( m_pinDIO, LOW );
 
   setBrightness( dsp_brightness );
-  clear();
+  setSegments(data,4,0);
 }
 
 void TM1637Display::setBrightness(uint8_t brightness )
@@ -448,6 +448,29 @@ void tm1637_showPreset( int preset )
     data[0] = 0b01110011; //  1.letter = P :       .111 ..11
 
   tm1637->addTimed( data, 5000, 99 );
+}
+
+void tm1637_infoUpdate( void )
+{
+  uint8_t data[] = { 0, 0, 0, 0 };
+
+  if ( !tm1637 )
+    return;
+
+  if ( tm1637_rotate )
+  {
+    data[3] = 0b00110111; //    letter = U :    ..11 .111
+    data[2] = 0b01011110; //    letter = P :    .1.1 111.
+    data[1] = 0b01110011; //    letter = d :    .111 ..11
+  }
+  else
+  {
+    data[0] = 0b00111110; //    letter = U :    ..11 111.
+    data[1] = 0b01110011; //    letter = P :    .111 ..11
+    data[2] = 0b01011110; //    letter = d :    .1.1 111.
+  }
+  tm1637->m_ttFill = 0;   // remove all other text
+  tm1637->addTimed( data, 20000, 50 );
 }
 
 void tm1637_loop( void )
