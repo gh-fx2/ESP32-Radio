@@ -490,6 +490,7 @@ uint8_t                 tm1637_rotate = 0;               // flip tm1637-display
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 uint8_t           enc_reverse=0;                         // enc left-right changed
+uint8_t           save_tone_values = 0;                  // do not stress flash
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
 sv int16_t        rotationcount = 0 ;                    // Current position of rotary switch
 sv uint16_t       enc_inactivity = 0 ;                   // Time inactive
@@ -2665,6 +2666,8 @@ void readFlags()
           if ( val.startsWith("denver_tr36") )
              ht1621_lcd_type = HT1621_T_DENVER_TR36;
         }
+        else if ( para.startsWith("save_tone_values") )
+          save_tone_values = BoolOfVal(val.c_str());
       }
       continue;
     }
@@ -4127,10 +4130,14 @@ void handleSaveReq()
      nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
   if ( ini_block.adc_vol_pin == -1 )
      nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
-  nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
-  nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
-  nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
-  nvssetstr ( "tonelf", String ( ini_block.rtone[3] ) ) ; // Save current tonelf
+
+  if ( save_tone_values )
+  {
+    nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
+    nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
+    nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
+    nvssetstr ( "tonelf", String ( ini_block.rtone[3] ) ) ; // Save current tonelf
+  }
 }
 
 
