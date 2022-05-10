@@ -360,8 +360,9 @@ void TM1637Display::addTimed( uint8_t *data, uint16_t ms, uint8_t kind )
     }
 	if ( idx == 10 )
 	  return;
-    memcpy(m_tText[idx].data,data,4);
+  memcpy(m_tText[idx].data,data,4);
 	m_tText[idx].milliDone = ms;
+  m_tText[idx].kind = kind;
     if ( !replace )
 	  m_ttFill++;
 

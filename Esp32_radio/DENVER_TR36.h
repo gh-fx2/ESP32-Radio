@@ -21,7 +21,7 @@ typedef struct _denverTr36Timed
 void HT1621Display::denverTr36_addTimed( uint8_t *data, uint32_t ms, uint8_t kind )
 {
   denverTr36Timed *t = (denverTr36Timed*)_timed;
-  uint8_t  replace = 0;
+  uint8_t  rpl = 0;
   uint8_t  idx;
   if ( !t )
   {
@@ -33,7 +33,7 @@ void HT1621Display::denverTr36_addTimed( uint8_t *data, uint32_t ms, uint8_t kin
   {
     if ( t->tText[idx].kind == kind )
     {
-      replace=1;
+      rpl=1;
       break;
     }
   }
@@ -41,7 +41,8 @@ void HT1621Display::denverTr36_addTimed( uint8_t *data, uint32_t ms, uint8_t kin
     return;
   memcpy(t->tText[idx].data,data,6);
   t->tText[idx].milliDone = ms;
-  if ( !replace )
+  t->tText[idx].kind = kind;
+  if ( !rpl )
     t->tFill++;
 
   if ( !idx )

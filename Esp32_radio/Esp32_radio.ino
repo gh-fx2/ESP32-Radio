@@ -462,7 +462,7 @@ uint16_t          maxpreset = 0;
 uint16_t          last_nadcpos = 0;
 uint8_t           adc_vol_reverse=0;
 uint8_t           adc_delog_vol=0;                       // delog values 2048 .. 4096 more linear
-uint8_t           adc_vol_lowp=15;                       // (old*15+new)/16
+uint8_t           adc_vol_lowp=3;                       // (old*3+new)/4
 uint8_t           adc_pos_lowp=3;                        // (old*3)+new)/4
 uint8_t           ht1621_lcd_type=0;                     // kind of glass-lcd
 uint32_t          clength ;                              // Content length found in http header
