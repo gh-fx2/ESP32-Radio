@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Tue, 10 May 2022 18:52:25 GMT+1"
+#define VERSION     "Thu, 12 May 2022 12:14:19 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -421,6 +421,7 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
+String            hostname ;
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
@@ -2216,8 +2217,8 @@ bool connectwifi()
   }
   if ( localAP )                                        // Must setup local AP?
   {
-    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
-    WiFi.softAP ( NAME, NAME ) ;                        // This ESP will be an AP
+    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", hostname, hostname ) ;
+    WiFi.softAP ( hostname.c_str(), hostname.c_str() ) ;                        // This ESP will be an AP
     pfs = dbgprint ( "IP = 192.168.4.1" ) ;             // Address for AP
   }
   else
@@ -2882,7 +2883,7 @@ bool mqttreconnect()
              mqttcount,
              ini_block.mqttbroker.c_str() ) ;
   sprintf ( clientid, "%s-%04d",                          // Generate client ID
-            NAME, (int) random ( 10000 ) % 10000 ) ;
+            hostname, (int) random ( 10000 ) % 10000 ) ;
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
                              ini_block.mqttpasswd.c_str()
@@ -3497,10 +3498,6 @@ void setup()
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
   readFlags();
-  dbgprint("FLAG : enc_direct_switch = %d",enc_direct_switch);
-  dbgprint("FLAG : adc_vol_reverse   = %d",adc_vol_reverse);
-  dbgprint("FLAG : rotate_screen     = %d",rotate_screen);
-  dbgprint("FLAG : enc_reverse       = %d",enc_reverse);
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
 
@@ -3573,15 +3570,23 @@ void setup()
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
-  WiFi.disconnect() ;                                    // After restart router could still
+  WiFi.disconnect();                                     // After restart router could still  
   delay ( 500 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   delay ( 500 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
-  listNetworks() ;                                       // Find WiFi networks
+
   readprefs ( false ) ;                                  // Read preferences
+
+  if (( hostname == 0 ) || (hostname.length() < 1))
+     hostname = NAME;
+  WiFi.disconnect(true) ;                                // After restart router could still
+  WiFi.config(INADDR_NONE,INADDR_NONE,INADDR_NONE);
+  WiFi.setHostname(hostname.c_str());
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
-                               NAME ) ;
+                               hostname.c_str() ) ;
+  listNetworks() ;                                       // Find WiFi networks
+
   vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
@@ -3600,7 +3605,7 @@ void setup()
     dbgprint ( "Network found. Starting mqtt and OTA" ) ;
     mqtt_on = ( ini_block.mqttbroker.length() > 0 ) &&   // Use MQTT if broker specified
               ( ini_block.mqttbroker != "none" ) ;
-    ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
+    ArduinoOTA.setHostname ( hostname.c_str() ) ;                    // Set the hostname
     ArduinoOTA.onStart ( otastart ) ;
     ArduinoOTA.begin() ;                                 // Allow update over the air
     if ( mqtt_on )                                       // Broker specified?
@@ -3620,7 +3625,7 @@ void setup()
                            ini_block.mqttport ) ;        // And the port
       mqttclient.setCallback ( onMqttMessage ) ;         // Set callback on receive
     }
-    if ( MDNS.begin ( NAME ) )                           // Start MDNS transponder
+    if ( MDNS.begin ( hostname.c_str() ) )                           // Start MDNS transponder
     {
       dbgprint ( "MDNS responder started" ) ;
     }
@@ -5552,6 +5557,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.mqttpasswd = value.c_str() ;          // Yes, set broker password accordingly
     }
+  }
+  else if ( argument == "hostname" )
+  {
+    hostname = value;
   }
   else if ( argument == "debug" )                     // debug on/off request?
   {

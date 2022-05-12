@@ -16,13 +16,12 @@ const char defprefs_txt[] PROGMEM = R"=====(
 #gpio_34 = station = icecast.omroep.nl:80/radio1-bb-mp3
 #
 # fx2-flags
+# hostname
 flag_00 = enc_direct_switch = true
 flag_01 = adc_vol_reverse = false
 flag_02 = autoplay = true
 # flag_03 = max_preset = 5
 # flag_04 = oled_128x32 = flase
-# .. dsp_brightness = 1..15, rotate_screen=true/false, dsp_show_time=true,false
-# .. dsp_show_ip=true/false, adc_delog_vol=true/false 
 #
 # MQTT settings
 mqttbroker = none
@@ -92,13 +91,12 @@ const char defprefs_txt[] PROGMEM = R"=====(
 #gpio_34 = station = icecast.omroep.nl:80/radio1-bb-mp3
 #
 # fx2-flags
+# hostname
 flag_00 = enc_direct_switch = true
 flag_01 = adc_vol_reverse = false
 flag_02 = autoplay = true
 # flag_03 = max_preset = 5
 # flag_04 = oled_128x32 = flase
-# .. dsp_brightness = 1..15, rotate_screen=true/false, dsp_show_time=true,false
-# .. dsp_show_ip=true/false, adc_delog_vol=true/false 
 #
 # MQTT settings
 mqttbroker = none
