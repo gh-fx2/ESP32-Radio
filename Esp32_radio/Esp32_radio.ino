@@ -7,7 +7,8 @@
 //  - nvs
 //  - Adafruit_ST7735
 //  - ArduinoOTA
-//  - PubSubClientenc_dt_pin
+//  - PubSubClient
+//  - enc_dt_pin
 //  - SD
 //  - FS
 //  - update
@@ -160,24 +161,27 @@
 //
 // Define the version number, also used for webserver as Last-Modified header and to
 // check version for update.  The format must be exactly as specified by the HTTP standard!
-#define VERSION     "Mon, 19 Oct 2020 14:12:00 GMT"
+// KA_PCB - default pinout for KaRadio32-PCB
+#define KA_PCB
+#define VERSION     "Thu, 17 Nov 2022 14:19:22 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
-#define UPDATEHOST  "smallenburg.nl"                    // Host for software updates
+#define UPDATEHOST  "unwx.de"                    // Host for software updates
 #define BINFILE     "/Arduino/Esp32_radio.ino.bin"      // Binary file name for update software
 #define TFTFILE     "/Arduino/ESP32-Radio.tft"          // Binary file name for update NEXTION image
 //
 // Define type of local filesystem(s).  See documentation.
-#define CH376                          // For CXH376 support (reading files from USB stick)
-#define SDCARD                         // For SD card support (reading files from SD card)
+//#define CH376                          // For CXH376 support (reading files from USB stick)
+//#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
-//#define OLED                         // 64x128 I2C OLED
+#define OLED                         // 64x128 I2C OLED
 //#define DUMMYTFT                     // Dummy display
 //#define LCD1602I2C                   // LCD 1602 display with I2C backpack
-#define LCD2004I2C                   // LCD 2004 display with I2C backpack
+//#define LCD2004I2C                   // LCD 2004 display with I2C backpack
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
+
 //
 #include <nvs.h>
 #include <PubSubClient.h>
@@ -227,11 +231,16 @@
 #define MQTT_SUBTOPIC     "command"           // Command to receive from MQTT
 //
 #define otaclient mp3client                   // OTA uses mp3client for connection to host
+#define VOLSTEPS  32                          // Total volume steps   (tcfkat 20210303)
+#define VOLMAX    (VOLSTEPS-1)                // Maximum volume setting (tcfkat 20210303)
+#define ENCIDLETO 40                          // Encoder idle timeout * 100ms (tcfkat 20210304)
 
 //**************************************************************************************************
 // Forward declaration and prototypes of various functions.                                        *
 //**************************************************************************************************
 void        displaytime ( const char* str, uint16_t color = 0xFFFF ) ;
+void        tm1637_displaytime( const char *str );
+void        ht1621_displaytime( const char *str );
 void        showstreamtitle ( const char* ml, bool full = false ) ;
 void        handlebyte_ch ( uint8_t b ) ;
 void        handleFSf ( const String& pagename ) ;
@@ -305,6 +314,11 @@ struct ini_struct
   int8_t         tft_sda_pin ;                        // GPIO connected to SDA of I2C TFT screen
   int8_t         tft_bl_pin ;                         // GPIO to activate BL of display
   int8_t         tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
+  int8_t         tm1637_clk_pin;                      // GPIO TM1637 CLK
+  int8_t         tm1637_dio_pin;                      // GPIO TM1637 DIO
+  int8_t         ht1621_cs_pin;                       // GPIO HT1621 CS
+  int8_t         ht1621_wr_pin;                       // GPIO HT1621 WR
+  int8_t         ht1621_data_pin;                     // GPIO HT1621 DATA
   int8_t         sd_cs_pin ;                          // GPIO connected to CS of SD card
   int8_t         vs_cs_pin ;                          // GPIO connected to CS of VS1053
   int8_t         vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
@@ -318,6 +332,8 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
+  int8_t         adc_vol_pin ;                        // can handle only 33, 36, 39 or -1
+  int8_t         adc_pos_pin ;                    // can handle only 33, 36, 39 or -1
 } ;
 
 struct WifiInfo_t                                     // For list with WiFi info
@@ -405,6 +421,7 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
+String            hostname ;
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
@@ -418,6 +435,11 @@ bool              resetreq = false ;                     // Request to reset the
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
+bool              config_autoplay = false;
+bool              save_volume = true;
+bool              vs1053_load_usercode = false;
+bool              autoplay = false;
+uint16_t          aplaycnt=0;
 String            networks ;                             // Found networks in the surrounding
 uint16_t          mqttcount = 0 ;                        // Counter MAXMQTTCONNECTS
 int8_t            playingstat = 0 ;                      // 1 if radio is playing (for MQTT)
@@ -436,12 +458,28 @@ uint32_t          ir_1 = 1650 ;                          // Average duration of 
 struct tm         timeinfo ;                             // Will be filled by NTP server
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
+uint16_t          adcvol = 0;
+uint16_t          adcpos = 0;
+uint16_t          nadcpos = 0;
+uint16_t          maxpreset = 0;
+uint16_t          last_nadcpos = 0;
+uint8_t           adc_vol_reverse=0;
+uint8_t           adc_delog_vol=0;                       // delog values 2048 .. 4096 more linear
+uint8_t           delog_debug=0;                        // show delog values in web-interface ; toggle via TEST-Btn
+uint8_t           adc_vol_lowp=3;                       // (old*3+new)/4
+uint8_t           adc_pos_lowp=3;                        // (old*3)+new)/4
+uint8_t           ht1621_lcd_type=0;                     // kind of glass-lcd
+char              *webauth_string=0;                     // web auth on guest hotspot
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
 int16_t           scaniocount ;                          // TEST*TEST*TEST
 uint16_t          bltimer = 0 ;                          // Backlight time-out counter
 display_t         displaytype = T_UNDEFINED ;            // Display type
+uint8_t           dsp_brightness = 3 ;                   // tft->setBrightness() needed ?
+uint8_t           dsp_show_time = 1;                     // show time (on tm1637?)
+uint8_t           dsp_show_ip = 1;                       // show last segment of ip
+uint8_t           oled_128_32 = 0;                       // oled is not 128x64 ?
 std::vector<WifiInfo_t> wifilist ;                       // List with wifi_xx info
 // nvs stuff
 nvs_page                nvsbuf ;                         // Space for 1 page of NVS info
@@ -451,8 +489,13 @@ uint32_t                nvshandle = 0 ;                  // Handle for nvs acces
 uint8_t                 namespace_ID ;                   // Namespace ID found
 char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 std::vector<keyname_t> keynames ;                        // Keynames in NVS
+uint8_t                 enc_direct_switch = 1;           // rotary encoder change preset without click
+uint8_t                 rotate_screen = 0;               // flip screen 180°
+uint8_t                 tm1637_rotate = 0;               // flip tm1637-display
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
+uint8_t           enc_reverse=0;                         // enc left-right changed
+uint8_t           save_tone_values = 0;                  // do not stress flash
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
 sv int16_t        rotationcount = 0 ;                    // Current position of rotary switch
 sv uint16_t       enc_inactivity = 0 ;                   // Time inactive
@@ -460,8 +503,8 @@ sv bool           singleclick = false ;                  // True if single click
 sv bool           doubleclick = false ;                  // True if double click detected
 sv bool           tripleclick = false ;                  // True if triple click detected
 sv bool           longclick = false ;                    // True if longclick detected
-enum enc_menu_t { VOLUME, PRESET, TRACK } ;              // State for rotary encoder menu
-enc_menu_t        enc_menu_mode = VOLUME ;               // Default is VOLUME mode
+enum enc_menu_t { PRESET, VOLUME, TRACK } ;              // State for rotary encoder menu (tcfkat 20210303)
+enc_menu_t        enc_menu_mode = PRESET ;               // Default is now PRESET mode (tcfkat 20210303)
 
 //
 struct progpin_struct                                    // For programmable input pins
@@ -543,14 +586,21 @@ touchpin_struct   touchpin[] =                           // Touch pins and progr
   // End of table
 } ;
 
+// Volume linearizing using logarithmic look up table (tcfkat 20210303)
+// Calculation: round(254 - (254 * log(x) / log(32))), with x = 1...32
+static const uint8_t vollut[VOLSTEPS] = {254, 203, 173, 152, 136, 123, 111, 102,
+                                          93,  85,  78,  72,  66,  61,  56,  51,
+                                          46,  42,  38,  34,  31,  27,  24,  21,
+                                          18,  15,  12,  10,   7,   5,   2,   0};
 
 //**************************************************************************************************
 // Pages, CSS and data for the webinterface.                                                       *
 //**************************************************************************************************
 #include "about_html.h"
-#include "config_html.h"
-#include "index_html.h"
+#include "config_html.h"      // Update omitted, see there. (tcfkat 20210305)
+#include "index_html.h"       // Hardcoded values changed. (tcfkat 20210303)
 #include "mp3play_html.h"
+#include "search_html.h"
 #include "radio_css.h"
 #include "favicon_ico.h"
 #include "defaultprefs.h"
@@ -681,7 +731,7 @@ class VS1053
     int8_t        dreq_pin ;                       // Pin where DREQ line is connected
     int8_t        shutdown_pin ;                   // Pin where the shutdown line is connected
     int8_t        shutdownx_pin ;                  // Pin where the shutdown (inversed) line is connected
-    uint8_t       curvol ;                         // Current volume setting 0..100%
+    uint8_t       curvol ;                         // Current volume setting 0..VOLMAX (tcfkat 20210303)
     const uint8_t vs1053_chunk_size = 32 ;
     // SCI Register
     const uint8_t SCI_MODE          = 0x0 ;
@@ -747,6 +797,8 @@ class VS1053
     void        wram_write ( uint16_t address, uint16_t data ) ;
     uint16_t    wram_read ( uint16_t address ) ;
     void        output_enable ( bool ena ) ;             // Enable amplifier through shutdown pin(s)
+void  LoadUserCodes(void);
+void  LoadUserCode( const unsigned short* plugin,uint16_t size);
 
   public:
     // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
@@ -925,9 +977,11 @@ bool VS1053::testComm ( const char *header )
   return ( okay ) ;                                     // Return the result
 }
 
+#include "vs1053b-patches.h"
+
 void VS1053::begin()
 {
-  pinMode      ( dreq_pin,  INPUT ) ;                   // DREQ is an input
+  pinMode      ( dreq_pin,  INPUT_PULLUP ) ;            // DREQ is an input. Request from NW (tcfkat 20210305)
   pinMode      ( cs_pin,    OUTPUT ) ;                  // The SCI and SDI signals
   pinMode      ( dcs_pin,   OUTPUT ) ;
   digitalWrite ( dcs_pin,   HIGH ) ;                    // Start HIGH for SCI en SDI
@@ -951,6 +1005,8 @@ void VS1053::begin()
   //printDetails ( "20 msec after reset" ) ;
   if ( testComm ( "Slow SPI, Testing VS1053 read/write registers..." ) )
   {
+	if ( vs1053_load_usercode )
+       LoadUserCodes();
     // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
     // when playing MP3.  You can modify the board, but there is a more elegant way:
     wram_write ( 0xC017, 3 ) ;                            // GPIO DDR = 3
@@ -979,15 +1035,15 @@ void VS1053::begin()
 void VS1053::setVolume ( uint8_t vol )
 {
   // Set volume.  Both left and right.
-  // Input value is 0..100.  100 is the loudest.
+  // Input value is 0..VOLMAX.  VOLMAX is the loudest.  // (tcfkat 20210303)
   // Clicking reduced by using 0xf8 to 0x00 as limits.
   uint16_t value ;                                      // Value to send to SCI_VOL
-
+  if ( vol > VOLMAX)                                    // (tcfkat 20210303)
+    vol = VOLMAX;
   if ( vol != curvol )
   {
     curvol = vol ;                                      // Save for later use
-    value = map ( vol, 0, 100, 0xF8, 0x00 ) ;           // 0..100% to one channel
-    value = ( value << 8 ) | value ;
+    value = ( vollut[vol] << 8 ) | vollut[vol] ;        // (tcfkat 20210303)
     write_register ( SCI_VOL, value ) ;                 // Volume left and right
     if ( vol == 0 )                                     // Completely silence?
     {
@@ -1103,7 +1159,6 @@ void VS1053::AdjustRate ( long ppm2 )                  // Fine tune the data rat
   write_register ( SCI_AUDATA,   read_register ( SCI_AUDATA ) ) ;
 }
 
-
 // The object for the MP3 player
 VS1053* vs1053player ;
 
@@ -1133,6 +1188,10 @@ VS1053* vs1053player ;
 #ifdef NEXTION
 #include "NEXTION.h"                                     // For NEXTION display
 #endif
+#include "TM1637.h"                                      // 4x 7-segment
+
+#include "HT1621.h"                                // 8x 16-segment
+
 //
 // Include software for CH376
 #include "CH376.h"                                       // For CH376 USB interface
@@ -1589,8 +1648,11 @@ void IRAM_ATTR timer10sec()
       if ( ( morethanonce > 0 ) ||                // Happened more than once?
            ( playlist_num > 0 ) )                 // Or playlist active?
       {
-        datamode = STOPREQD ;                     // Stop player
-        ini_block.newpreset++ ;                   // Yes, try next channel
+        ini_block.newpreset = currentpreset;      // Make a definite choice
+        currentpreset = -1 ;                      // Make sure current is different
+        // do not select next radio channel !
+        // datamode = STOPREQD ;                  // Stop player
+        // ini_block.newpreset++ ;                // Yes, try next channel
       }
       morethanonce++ ;                            // Count the fails
     }
@@ -1646,10 +1708,9 @@ void IRAM_ATTR timer100()
     }
   }
   // Handle rotary encoder. Inactivity counter will be reset by encoder interrupt
-  if ( ++enc_inactivity == 36000 )                // Count inactivity time
-  {
-    enc_inactivity = 1000 ;                       // Prevent wrap
-  }
+  // Changed, more efficient. (tcfkat 20210304)
+  if (enc_inactivity <= ENCIDLETO)                // Count inactivity time (turn or switch)
+    enc_inactivity++;
   // Now detection of single/double click of rotary encoder switch
   if ( clickcount )                               // Any click?
   {
@@ -1789,7 +1850,7 @@ void IRAM_ATTR isr_enc_switch()
 //**************************************************************************************************
 void IRAM_ATTR isr_enc_turn()
 {
-  sv uint32_t     old_state = 0x0001 ;                          // Previous state
+  sv uint32_t     old_state = 0x0003;                          // Previous state
   sv int16_t      locrotcount = 0 ;                             // Local rotation count
   uint8_t         act_state = 0 ;                               // The current state of the 2 PINs
   uint8_t         inx ;                                         // Index in enc_state
@@ -1816,16 +1877,28 @@ void IRAM_ATTR isr_enc_turn()
               digitalRead ( ini_block.enc_dt_pin ) ;
   inx = ( old_state << 2 ) + act_state ;                        // Form index in enc_states
   locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+#if 0
+  if ( inx == 11 )
+  {
+    rotationcount+=enc_reverse?-1:1;
+  }
+  else if ( inx == 7 )
+  {
+    rotationcount+=enc_reverse?1:-1;
+  }
+#endif
+#if 1
   if ( locrotcount == 4 )
   {
-    rotationcount++ ;                                           // Divide by 4
+    rotationcount+=enc_reverse?-1:1 ;                                           // Divide by 4
     locrotcount = 0 ;
   }
   else if ( locrotcount == -4 )
   {
-    rotationcount-- ;                                           // Divide by 4
+    rotationcount+=enc_reverse?1:-1;                                           // Divide by 4
     locrotcount = 0 ;
   }
+#endif
   old_state = act_state ;                                       // Remember current status
   enc_inactivity = 0 ;
 }
@@ -1971,6 +2044,9 @@ void showstreamtitle ( const char *ml, bool full )
     strcpy ( p1, p2 ) ;                         // Shift 2nd part of title 2 or 3 places
   }
   tftset ( 1, streamtitle ) ;                   // Set screen segment text middle part
+#ifdef ENABLE_VIM878
+  vim878.timeText( streamtitle, 20000 );
+#endif
 }
 
 
@@ -1994,7 +2070,6 @@ void setdatamode ( datamode_t newmode )
 //**************************************************************************************************
 void stop_mp3client ()
 {
-
   while ( mp3client.connected() )
   {
     dbgprint ( "Stopping client" ) ;               // Stop connection to host
@@ -2006,6 +2081,62 @@ void stop_mp3client ()
   mp3client.stop() ;                               // Stop stream client
 }
 
+void webauth( char *url )
+{
+  int timeout=0;
+  char host[32];
+  int  len, port=80;
+  char *path, *portp;
+
+  if ( !strncmp(url,"http://",7) )
+    url+=7;
+  else if ( !strncmp(url,"https://",8) )
+    url+=8;
+  path=strchr(url,'/');
+  if ( !path )
+    return;
+  len=path-url;
+  if (( len > 31 ) || ( len < 1 ))
+    return;
+  memcpy(host,url,len);
+  *(host+len)=0;
+  portp=strchr(host,':');
+  if ( portp )
+  {
+    *portp=0;
+    port=atoi(portp+1);
+  }
+
+  if ( mp3client.connect ( host, port ) )
+  {
+    if ( portp )
+      *portp=':';
+    mp3client.print ( String ( "GET " ) + path + String( " HTTP/1.1\r\n" ) +
+                      String ( "Host: ") + host + String("\r\n" ) +
+                      String ( "Connection: keep-alive\r\n\r\n" ) ) ;
+    
+    while ( mp3client.available() == 0 )
+    {
+      delay ( 200 ) ;                                 // Give server some time
+      if ( ++timeout > 25 )                           // No answer in 5 seconds?
+        break;
+    }
+    if ( !mp3client.available() )
+    {
+      mp3client.print ( String ( "GET /trustme.lua?accept= HTTP/1.1\r\n" ) +
+                      String ( "Host: 192.168.179.1:8186\r\n" ) +
+                      String ( "Connection: keep-alive\r\n\r\n" ) ) ;
+      delay( 800 );
+    }
+    if ( mp3client.available() )
+    {
+      String sreply;
+      sreply = mp3client.readStringUntil ( '>' ) ;
+    }
+    mp3client.stop();
+  }
+//  ht1621_showIP( text );
+}
 
 //**************************************************************************************************
 //                                    C O N N E C T T O H O S T                                    *
@@ -2140,10 +2271,15 @@ bool connectwifi()
   {
     localAP = true ;                                    // Not even a single AP defined
   }
+  if ( oled_128_32 )
+  {
+    dsp_setCursor ( 0, 8 ) ;                            // Prepare to show the info
+    dsp_fillRect( 0,0, 128, 32, BLACK );
+  }
   if ( localAP )                                        // Must setup local AP?
   {
-    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
-    WiFi.softAP ( NAME, NAME ) ;                        // This ESP will be an AP
+    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", hostname, hostname ) ;
+    WiFi.softAP ( hostname.c_str(), hostname.c_str() ) ;                        // This ESP will be an AP
     pfs = dbgprint ( "IP = 192.168.4.1" ) ;             // Address for AP
   }
   else
@@ -2151,10 +2287,23 @@ bool connectwifi()
     ipaddress = WiFi.localIP().toString() ;             // Form IP address
     pfs2 = dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
     tftlog ( pfs2 ) ;
-    pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+    pfs = dbgprint ( "IP=%s", ipaddress.c_str() ) ;   // String to dispay on TFT
+    if (dsp_show_ip)
+    {
+      tm1637_showIP( ipaddress.c_str() );
+      ht1621_showIP( ipaddress.c_str() );
+    }
+
+    if ( webauth_string )
+      webauth( webauth_string );
+
+#ifdef ENABLE_VIM878
+    if ( dsp_show_ip && ( ini_block.vim878_cs_pin >= 0 ))
+      vim878.timeText( pfs, 10000 );
+#endif
   }
   tftlog ( pfs ) ;                                      // Show IP
-  delay ( 3000 ) ;                                      // Allow user to read this
+  //delay ( 3000 ) ;                                      // Allow user to read this
   tftlog ( "\f" ) ;                                     // Select new page if NEXTION 
   return ( localAP == false ) ;                         // Return result of connection
 }
@@ -2167,10 +2316,15 @@ bool connectwifi()
 //**************************************************************************************************
 void otastart()
 {
-  char* p ;
+static const  char* p ="OTA update Started" ;
 
-  p = dbgprint ( "OTA update Started" ) ;
-  tftset ( 2, p ) ;                                   // Set screen segment bottom part
+  dbgprint ( "OTA update Started" ) ;
+  tftset ( 3, p ) ;                                   // Set screen segment bottom part
+#ifdef ENABLE_VIM878
+  vim878.baseText( "UPDATE" );
+#endif
+  ht1621_infoUpdate();
+  tm1637_infoUpdate();
 }
 
 
@@ -2494,8 +2648,103 @@ void readprogbuttons()
       }
     }
   }
+  // Now for the pin_fixed pins 0..34, identified by their GPIO pin number
+  for ( i = 0 ; i<35 ; i++ )   // Scan for all pins
+  {
+    sprintf ( mykey, "pin_fixed_%d", i ) ;                  // Form key in preferences
+    if ( nvssearch ( mykey ) )
+    {
+      val = nvsgetstr ( mykey ) ;                           // Get the contents
+      if ( val.length() )                                   // Does it exists?
+      {
+        pinMode( 12, OUTPUT );
+        pinnr = atoi(val.c_str());
+        digitalWrite(12,  pinnr ? HIGH : LOW );
+
+        dbgprint ( "pin_fixed_%d pin set to %s",i, pinnr?"HIGH":"LOW" ) ;
+      }
+    }
+  }
+  
 }
 
+//**************************************************************************************************
+//                                       R E A D F L A G S                                         *
+//**************************************************************************************************
+// Read flag_00 .. 31                                                                              *
+//**************************************************************************************************
+void readFlags()
+{
+  char        mykey[20] ;                                   // For numerated key
+  int         i , inx;                                      // Loop control
+  String      val ;                                         // Contents of preference entry
+  String      para ;
+
+  for ( i = 0 ; i<32 ; i++ )    // Scan for all programmable pins
+  {
+    sprintf ( mykey, "flag_%02d", i ) ;                 // Form key in preferences
+    if ( nvssearch ( mykey ) )
+    {
+      para = nvsgetstr ( mykey ) ;                           // Get the contents
+      if ( !para.length() )                                   // Does it exists?
+         break;
+
+      para.trim();
+      inx = para.indexOf("=");
+      if ( inx > 0 )
+      {
+        val = para.substring(inx+1);
+        val.trim();
+        if ( para.startsWith("enc_direct_switch") )
+           enc_direct_switch = BoolOfVal(val.c_str());
+        else if ( para.startsWith("adc_vol_reverse") )
+           adc_vol_reverse = BoolOfVal(val.c_str());
+        else if ( para.startsWith("rotate_screen") )
+           rotate_screen = BoolOfVal(val.c_str());
+        else if ( para.startsWith("tm1637_rotate") )
+           tm1637_rotate = BoolOfVal(val.c_str());
+        else if ( para.startsWith("enc_reverse") )
+           enc_reverse = BoolOfVal(val.c_str());
+        else if ( para.startsWith("dsp_brightness") )
+           dsp_brightness = val.toInt();
+        else if ( para.startsWith("dsp_show_time") )
+           dsp_show_time = BoolOfVal(val.c_str());
+        else if ( para.startsWith("dsp_show_ip") )
+           dsp_show_ip = BoolOfVal(val.c_str());
+        else if ( para.startsWith("oled_128x32") )
+           oled_128_32 = BoolOfVal(val.c_str());
+        else if ( para.startsWith("autoplay") )
+           config_autoplay = BoolOfVal(val.c_str());
+        else if ( para.startsWith("save_vol") )
+           save_volume = BoolOfVal(val.c_str());
+        else if ( para.startsWith("vs1053_load_usercode") )
+           vs1053_load_usercode = BoolOfVal(val.c_str());
+        else if ( para.startsWith("max_preset") )
+        {
+           maxpreset = val.toInt();
+           if ( !maxpreset )
+             maxpreset=1;
+        }
+        else if ( para.startsWith("adc_delog_vol") )
+           adc_delog_vol = BoolOfVal(val.c_str());
+        else if ( para.startsWith("adc_vol_lowp") )
+           adc_vol_lowp = val.toInt();
+        else if ( para.startsWith("adc_pos_lowp") )
+           adc_pos_lowp = val.toInt();
+        else if ( para.startsWith("ht1621_lcd_type") )
+        {
+          if ( val.startsWith("denver_tr36") )
+             ht1621_lcd_type = HT1621_T_DENVER_TR36;
+        }
+        else if ( para.startsWith("save_tone_values") )
+          save_tone_values = BoolOfVal(val.c_str());
+      }
+      continue;
+    }
+    break;
+  }
+  autoplay = config_autoplay;
+}
 
 //**************************************************************************************************
 //                                       R E S E R V E P I N                                       *
@@ -2559,19 +2808,26 @@ void readIOprefs()
     { "pin_tft_dc",    &ini_block.tft_dc_pin,       -1 }, // Display SPI version
     { "pin_tft_scl",   &ini_block.tft_scl_pin,      -1 }, // Display I2C version
     { "pin_tft_sda",   &ini_block.tft_sda_pin,      -1 }, // Display I2C version
+    { "pin_tm1637_clk",   &ini_block.tm1637_clk_pin,      -1 }, // extra 7seg
+    { "pin_tm1637_dio",   &ini_block.tm1637_dio_pin,      -1 }, // extra 7seg
+    { "pin_ht1621_cs",   &ini_block.ht1621_cs_pin,      -1 }, // 8x16seg
+    { "pin_ht1621_wr",   &ini_block.ht1621_wr_pin,      -1 }, // 8x16seg
+    { "pin_ht1621_data",   &ini_block.ht1621_data_pin,      -1 }, // 8x16seg
     { "pin_tft_bl",    &ini_block.tft_bl_pin,       -1 }, // Display backlight
     { "pin_tft_blx",   &ini_block.tft_blx_pin,      -1 }, // Display backlight (inversed logic)
     { "pin_sd_cs",     &ini_block.sd_cs_pin,        -1 },
     { "pin_ch376_cs",  &ini_block.ch376_cs_pin,     -1 }, // CH376 CS for USB interface
     { "pin_ch376_int", &ini_block.ch376_int_pin,    -1 }, // CH376 INT for USB interfce
-    { "pin_vs_cs",     &ini_block.vs_cs_pin,        -1 }, // VS1053 pins
-    { "pin_vs_dcs",    &ini_block.vs_dcs_pin,       -1 },
-    { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      -1 },
+    { "pin_vs_cs",     &ini_block.vs_cs_pin,        5 }, // VS1053 pins
+    { "pin_vs_dcs",    &ini_block.vs_dcs_pin,       32 },
+    { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      4 },
     { "pin_shutdown",  &ini_block.vs_shutdown_pin,  -1 }, // Amplifier shut-down pin
     { "pin_shutdownx", &ini_block.vs_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
+    { "pin_adc_vol",   &ini_block.adc_vol_pin,      -1 },
+    { "pin_adc_pos",   &ini_block.adc_pos_pin,      -1 },
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -2696,7 +2952,7 @@ bool mqttreconnect()
              mqttcount,
              ini_block.mqttbroker.c_str() ) ;
   sprintf ( clientid, "%s-%04d",                          // Generate client ID
-            NAME, (int) random ( 10000 ) % 10000 ) ;
+            hostname, (int) random ( 10000 ) % 10000 ) ;
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
                              ini_block.mqttpasswd.c_str()
@@ -3146,6 +3402,7 @@ uint8_t FindNsID ( const char* ns )
 //**************************************************************************************************
 // Bubblesort the nvskeys.                                                                         *
 //**************************************************************************************************
+// Why not use librarys qsort()? (tcfkat 20210305)
 void bubbleSortKeys ( uint16_t n )
 {
   uint16_t i, j ;                                             // Indexes in nvskeys
@@ -3220,6 +3477,13 @@ void fillkeylist()
   bubbleSortKeys ( nvsinx ) ;                                   // Sort the keys
 }
 
+uint8_t BoolOfVal( const char * val )
+{
+  if (!strcasecmp(val,"true") || !strcasecmp(val,"yes") ||
+      !strcasecmp(val,"on") )
+		return 1;
+  return atoi(val) ? 1:0;
+}
 
 //**************************************************************************************************
 //                                           S E T U P                                             *
@@ -3244,7 +3508,7 @@ void setup()
   // Version tests for some vital include files
   if ( about_html_version   < 170626 ) dbgprint ( wvn, "about" ) ;
   if ( config_html_version  < 180806 ) dbgprint ( wvn, "config" ) ;
-  if ( index_html_version   < 180102 ) dbgprint ( wvn, "index" ) ;
+  if ( index_html_version   < 220130 ) dbgprint ( wvn, "index" ) ;
   if ( mp3play_html_version < 180918 ) dbgprint ( wvn, "mp3play" ) ;
   if ( defaultprefs_version < 180816 ) dbgprint ( wvn, "defaultprefs" ) ;
   // Print some memory and sketch info
@@ -3302,8 +3566,13 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+  readFlags();
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
+
+  readprogbuttons() ;                                    // Program the free input pins
+
+#if 1
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3319,7 +3588,8 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
-  readprogbuttons() ;                                    // Program the free input pins
+#endif
+  
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
@@ -3336,6 +3606,9 @@ void setup()
     attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
                       isr_IR, CHANGE ) ;
   }
+  tm1637_begin();
+  ht1621_begin( ini_block.ht1621_cs_pin,  ini_block.ht1621_wr_pin,ini_block.ht1621_data_pin,ht1621_lcd_type);
+
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -3350,7 +3623,7 @@ void setup()
       dsp_print ( "Starting..." "\n" "Version:" ) ;
       strncpy ( tmpstr, VERSION, 16 ) ;                  // Limit version length
       dsp_println ( tmpstr ) ;
-      dsp_println ( "By Ed Smallenburg" ) ;
+      dsp_println ( "... fx2 mod ..." ) ;
       dsp_update() ;                                     // Show on physical screen
     }
   }
@@ -3366,19 +3639,32 @@ void setup()
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
-  WiFi.disconnect() ;                                    // After restart router could still
+  WiFi.disconnect();                                     // After restart router could still  
   delay ( 500 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   delay ( 500 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
-  listNetworks() ;                                       // Find WiFi networks
+
   readprefs ( false ) ;                                  // Read preferences
+
+  if (( hostname == 0 ) || (hostname.length() < 1))
+     hostname = NAME;
+  WiFi.disconnect(true) ;                                // After restart router could still
+  WiFi.config(INADDR_NONE,INADDR_NONE,INADDR_NONE);
+  WiFi.setHostname(hostname.c_str());
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
-                               NAME ) ;
+                               hostname.c_str() ) ;
+  listNetworks() ;                                       // Find WiFi networks
+
   vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
+  if ( oled_128_32 )
+    dsp_setCursor ( 0, 16 ) ;             				  // Prepare to show the info
   p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+#ifdef ENABLE_VIM878
+  vim878.timeText("WiFi",1200);
+#endif
   tftlog ( p ) ;                                         // On TFT too
   NetworkFound = connectwifi() ;                         // Connect to WiFi network
   dbgprint ( "Start server for commands" ) ;
@@ -3388,7 +3674,7 @@ void setup()
     dbgprint ( "Network found. Starting mqtt and OTA" ) ;
     mqtt_on = ( ini_block.mqttbroker.length() > 0 ) &&   // Use MQTT if broker specified
               ( ini_block.mqttbroker != "none" ) ;
-    ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
+    ArduinoOTA.setHostname ( hostname.c_str() ) ;                    // Set the hostname
     ArduinoOTA.onStart ( otastart ) ;
     ArduinoOTA.begin() ;                                 // Allow update over the air
     if ( mqtt_on )                                       // Broker specified?
@@ -3408,7 +3694,7 @@ void setup()
                            ini_block.mqttport ) ;        // And the port
       mqttclient.setCallback ( onMqttMessage ) ;         // Set callback on receive
     }
-    if ( MDNS.begin ( NAME ) )                           // Start MDNS transponder
+    if ( MDNS.begin ( hostname.c_str() ) )                           // Start MDNS transponder
     {
       dbgprint ( "MDNS responder started" ) ;
     }
@@ -3431,12 +3717,17 @@ void setup()
                ini_block.clk_server.c_str() ) ;          // GMT offset, daylight offset in seconds
   timeinfo.tm_year = 0 ;                                 // Set TOD to illegal
   // Init settings for rotary switch (if existing).
-  if ( ( ini_block.enc_clk_pin + ini_block.enc_dt_pin + ini_block.enc_sw_pin ) > 2 )
+  // if ( ( ini_block.enc_clk_pin + ini_block.enc_dt_pin + ini_block.enc_sw_pin ) > 2 )
+  // This is WRONG! If only ONE pin is configured ALL interrupts are attached! (tcfkat 20210305)
+  if ((ini_block.enc_clk_pin >= 0) && (ini_block.enc_dt_pin >= 0) && (ini_block.enc_sw_pin >= 0))
   {
     attachInterrupt ( ini_block.enc_clk_pin, isr_enc_turn,   CHANGE ) ;
     attachInterrupt ( ini_block.enc_dt_pin,  isr_enc_turn,   CHANGE ) ;
     attachInterrupt ( ini_block.enc_sw_pin,  isr_enc_switch, CHANGE ) ;
-    dbgprint ( "Rotary encoder is enabled" ) ;
+    dbgprint ( "Rotary encoder is enabled (%d/%d/%d)",
+               ini_block.enc_clk_pin,
+               ini_block.enc_dt_pin,
+               ini_block.enc_sw_pin) ; // Be more verbose (tcfkat 20210305)
   }
   else
   {
@@ -3637,6 +3928,7 @@ void handlehttpreply()
             if ( datamode != STOPPED )                      // Still playing?
             {
               setdatamode (  STOPREQD ) ;                   // Stop playing
+              autoplay = 0;
             }
             sndstr += readprefs ( true ) ;                  // Read and send
           }
@@ -3654,6 +3946,7 @@ void handlehttpreply()
             if ( datamode != STOPPED )                      // Still playing?
             {
               setdatamode ( STOPREQD ) ;                    // Stop playing
+              autoplay = 0;
             }
             cmdclient.print ( sndstr ) ;                    // Yes, send header
             n = listfstracks ( "/", 0, true ) ;             // Handle it
@@ -3907,12 +4200,18 @@ void handleSaveReq()
     return ;
   }
   savetime = millis() ;                                   // Set time of last save
-  nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
-  nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
-  nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
-  nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
-  nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
-  nvssetstr ( "tonelf", String ( ini_block.rtone[3] ) ) ; // Save current tonelf
+  if ( ini_block.adc_pos_pin == -1 )
+     nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
+  if ( save_volume && ( ini_block.adc_vol_pin == -1 ))
+     nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
+
+  if ( save_tone_values )
+  {
+    nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
+    nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
+    nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
+    nvssetstr ( "tonelf", String ( ini_block.rtone[3] ) ) ; // Save current tonelf
+  }
 }
 
 
@@ -3983,20 +4282,20 @@ String getFSfilename ( String &nodeID )
 //**************************************************************************************************
 void chk_enc()
 {
-  static int8_t  enc_preset ;                                 // Selected preset
+  static int8_t  enc_preset ;                                 // Selected preset  
   static String  enc_nodeID ;                                 // Node of selected track
   static String  enc_filename ;                               // Filename of selected track
   String         tmp ;                                        // Temporary string
   int16_t        inx ;                                        // Position in string
   String         rt = "0" ;                                   // NodeID for random track
 
-  if ( enc_menu_mode != VOLUME )                              // In default mode?
+  if ( enc_menu_mode != PRESET )                              // In default mode? (tcfkat 20210303)
   {
-    if ( enc_inactivity > 40 )                                // No, more than 4 seconds inactive
+    if ( enc_inactivity > ENCIDLETO )                     // No, more than ENCIDLETO inactive (tcfkat 20210304)
     {
       enc_inactivity = 0 ;
-      enc_menu_mode = VOLUME ;                                // Return to VOLUME mode
-      dbgprint ( "Encoder mode back to VOLUME" ) ;
+      enc_menu_mode = PRESET ;                                // Return to PRESET mode (tcfkat 20210303)
+      dbgprint ( "Encoder mode back to PRESET" ) ;            // (tcfkat 20210303)
       tftset ( 2, (char*)NULL ) ;                             // Restore original text at bottom
     }
   }
@@ -4018,7 +4317,7 @@ void chk_enc()
     {
       enc_menu_mode = TRACK ;                                 // Swich to TRACK mode
       dbgprint ( "Encoder mode set to TRACK" ) ;
-      tftset ( 3, "Turn to select track\n"                    // Show current option
+      tftset ( 2, "Turn to select track\n"                    // Show current option
                "Press to confirm" ) ;
       enc_nodeID = selectnextFSnode ( +1 ) ;                  // Start with next file on SD/USB
       if ( enc_nodeID == "" )                                 // Current track available?
@@ -4037,41 +4336,45 @@ void chk_enc()
   {
     dbgprint ( "Double click") ;
     doubleclick = false ;
-    enc_menu_mode = PRESET ;                                  // Swich to PRESET mode
-    dbgprint ( "Encoder mode set to PRESET" ) ;
-    tftset ( 3, "Turn to select station\n"                    // Show current option
-             "Press to confirm" ) ;
+    enc_menu_mode = VOLUME ;                                  // Switch to VOLUME mode (tcfkat 20210303)
+    dbgprint ( "Encoder mode set to VOLUME" ) ;               // (tcfkat 20210303)
+    tftset ( 2, "Turn to select volume");                     // Show current option (tcfkat 20210303)
+                                                              // "Press to confirm" omitted (tcfkat 20210304)
     enc_preset = ini_block.newpreset + 1 ;                    // Start with current preset + 1
   }
   if ( singleclick )
   {
     dbgprint ( "Single click") ;
     singleclick = false ;
-    switch ( enc_menu_mode )                                  // Which mode (VOLUME, PRESET, TRACK)?
+    switch ( enc_menu_mode )                                  // Which mode (PRESET, VOLUME, TRACK)?
     {
-      case VOLUME :
-        if ( muteflag )
-        {
-          tftset ( 3, "" ) ;                                  // Clear text
-        }
-        else
-        {
-          tftset ( 3, "Mute" ) ;
-        }
-        muteflag = !muteflag ;                                // Mute/unmute
-        break ;
       case PRESET :
         currentpreset = -1 ;                                  // Make sure current is different
         ini_block.newpreset = enc_preset ;                    // Make a definite choice
-        enc_menu_mode = VOLUME ;                              // Back to default mode
-        tftset ( 3, "" ) ;                                    // Clear text
+        tftset ( 2, "" ) ;                                    // Clear text
+        break ;
+      case VOLUME :
+        if ( muteflag )
+        {
+          tftset ( 2, "" ) ;                                  // Clear text
+        }
+        else
+        {
+          tftset ( 2, "Mute" ) ;
+#ifdef ENABLE_VIM878
+          vim878.timeText( "MUTE", 5000 );
+#endif
+        }
+        muteflag = !muteflag ;                                // Mute/unmute
+        enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
         break ;
       case TRACK :
         host = enc_filename ;                                 // Selected track as new host
         hostreq = true ;                                      // Request this host
-        enc_menu_mode = VOLUME ;                              // Back to default mode
-        tftset ( 3, "" ) ;                                    // Clear text
+        enc_menu_mode = PRESET ;                              // Back to default mode (tcfkat 20210303)
+        tftset ( 2, "" ) ;                                    // Clear text
         break ;
+      default: break;                                         // Never forget! (tcfkat 20210303)
     }
   }
   if ( longclick )                                            // Check for long click
@@ -4106,9 +4409,9 @@ void chk_enc()
       {
         ini_block.reqvol = 0 ;                                // Limit to normal values
       }
-      else if ( ( ini_block.reqvol + rotationcount ) > 100 )
+      else if ( ( ini_block.reqvol + rotationcount ) > VOLMAX ) // (tcfkat 20210303)
       {
-        ini_block.reqvol = 100 ;                              // Limit to normal values
+        ini_block.reqvol = VOLMAX ;                           // Limit to normal values (tcfkat 20210303)
       }
       else
       {
@@ -4140,6 +4443,15 @@ void chk_enc()
       }
       chomp ( tmp ) ;                                         // Remove garbage from description
       tftset ( 3, tmp ) ;                                     // Set screen segment bottom part
+#ifdef ENABLE_VIM878
+      vim878.baseText( (char*)tmp.c_str() );
+#endif
+      if ( enc_direct_switch )
+	  {
+        currentpreset = ini_block.newpreset;
+        ini_block.newpreset += rotationcount ;                // Make a definite choice
+        setdatamode ( STOPREQD ) ;                            // Force stop MP3 player
+      }
       break ;
     case TRACK :
       enc_nodeID = selectnextFSnode ( rotationcount ) ;       // Select the next file on SD/USB
@@ -4151,7 +4463,7 @@ void chk_enc()
         tmp.remove ( 0, inx + 1 ) ;                           // Remove before the slash
       }
       dbgprint ( "Simplified %s", tmp.c_str() ) ;
-      tftset ( 3, tmp ) ;
+      tftset ( 2, tmp ) ;
     // Set screen segment bottom part
     default :
       break ;
@@ -4302,11 +4614,31 @@ void mp3loop()
       else
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
+        int inx = host.indexOf ( "#" ) ;                             // Get position of "#"
+        if ( inx > 0 )                                          // Hash sign present?
+        {
+          String sname=host.substring(inx+1);
+          sname.trim();
+          tftset( 3, sname.c_str() );
+#ifdef ENABLE_VIM878
+		  vim878.baseText( (char*)(sname.c_str()) );
+#endif
+        }
+        else
+        {
+          char stext[16];
+          tftset( 3, "" );
+		  sprintf(stext,"Prog: %2d",ini_block.newpreset);
+#ifdef ENABLE_VIM878
+		  vim878.baseText( stext );
+#endif
+        }
+        dbgprint("name=%s",inx>0?host.c_str()+inx+1:"?");
         chomp ( host ) ;                                  // Get rid of part after "#"
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
-      if ( host != ""  )                                  // Preset in ini-file?
+      if ( host.length() > 0  )                                  // Preset in ini-file?
       {
         hostreq = true ;                                  // Force this station as new preset
       }
@@ -4318,10 +4650,24 @@ void mp3loop()
       }
     }
   }
+  else
+  {
+    if ( autoplay && ( datamode == STOPPED ))
+      aplaycnt++;
+
+    if ( aplaycnt == 800 )   // do autoplay around a second ?
+    {
+      hostreq = true ;                                    // autoplay: Request UNSTOP
+      aplaycnt=0;
+    }
+  }
   if ( hostreq )                                          // New preset or station?
   {
     hostreq = false ;
     currentpreset = ini_block.newpreset ;                 // Remember current preset
+    dsp_showPreset( currentpreset+1 );
+    tm1637_showPreset( currentpreset+1 );
+    ht1621_showPreset( currentpreset+1 );
     mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
     // Find out if this URL is on localhost (SD).
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
@@ -4392,6 +4738,8 @@ void loop()
   handleVolPub() ;                                  // See if time to publish volume
   chk_enc() ;                                       // Check rotary encoder functions
   check_CH376() ;                                   // Check Flashdrive insert/remove
+  tm1637_loop();
+  ht1621_loop();
 }
 
 
@@ -4562,10 +4910,21 @@ void handlebyte_ch ( uint8_t b )
         }
         else if ( lcml.startsWith ( "icy-name:" ) )
         {
-          icyname = metaline.substring(9) ;            // Get station name
-          icyname.trim() ;                             // Remove leading and trailing spaces
-          tftset ( 2, icyname ) ;                      // Set screen segment bottom part
-          mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+          String sname = readhostfrompref() ;          // Lookup preset in preferences
+          int inx = sname.indexOf ( "#" ) ;               // Get position of "#"
+          if ( inx > 0 )                                 // Hash sign present?
+          {
+            sname=sname.substring(inx+1);
+            sname.trim();
+            tftset( 3, sname.c_str() );
+          }
+          else
+          {
+            icyname = metaline.substring(9) ;            // Get station name
+            icyname.trim() ;                             // Remove leading and trailing spaces
+            tftset ( 3, icyname ) ;                      // Set screen segment bottom part
+            mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+          }
         }
         else if ( lcml.startsWith ( "transfer-encoding:" ) )
         {
@@ -4846,6 +5205,11 @@ void handleFSf ( const String& pagename )
       p = mp3play_html ;
       l = sizeof ( mp3play_html ) ;
     }
+    else if ( pagename.indexOf ( "search.html" ) >= 0 ) // search page is in PROGMEM
+    {
+      p = search_html ;
+      l = sizeof ( search_html ) ;
+    }
     else if ( pagename.indexOf ( "about.html" ) >= 0 )  // About page is in PROGMEM
     {
       p = about_html ;
@@ -4943,6 +5307,23 @@ const char* analyzeCmd ( const char* str )
   return res ;
 }
 
+int deLogVolume( int in )
+{
+  int i;
+  int v[]={ 25,   40,   90,   190,  340,  500,  700,  900,  1150,    //10..18
+            1400, 1700, 2000, 2350, 2700, 3100, 3500, 3950, 4100,    //19..27
+            4300, 0};
+           
+  if ( !in )
+    return 0;
+  for( i=0; v[i]; i++ )
+  {
+    if ( in < v[i] )
+      return((i+10)*128);
+  }
+  return 4096;
+}
+
 
 //**************************************************************************************************
 //                                     A N A L Y Z E C M D                                         *
@@ -5037,7 +5418,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
-    // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
+    // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting   
     oldvol = vs1053player->getVolume() ;              // Get current volume
     if ( relative )                                   // + relative setting?
     {
@@ -5051,11 +5432,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = 0 ;                          // Yes, keep at zero
     }
-    if ( ini_block.reqvol > 100 )
+    if ( ini_block.reqvol > VOLMAX )                  // (tcfkat 20210303)
     {
-      ini_block.reqvol = 100 ;                        // Limit to normal values
+      ini_block.reqvol = VOLMAX ;                     // Limit to normal values (tcfkat 20210303)
     }
     muteflag = false ;                                // Stop possibly muting
+// mayk000
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
   }
@@ -5066,11 +5448,19 @@ const char* analyzeCmd ( const char* par, const char* val )
   else if ( argument.indexOf ( "ir_" ) >= 0 )         // Ir setting?
   { // Do not handle here
   }
+  else if ( argument == "webauth" )
+  {
+    if ( webauth_string )
+      free( webauth_string );
+    webauth_string = strdup(value.c_str());
+  }
   else if ( argument.indexOf ( "preset_" ) >= 0 )     // Enumerated preset?
   { // Do not handle here
+    autoplay = config_autoplay;                       // but set back autoplay to configured value
   }
   else if ( argument.indexOf ( "preset" ) >= 0 )      // (UP/DOWN)Preset station?
   {
+    autoplay = config_autoplay;                       // now set back autoplay to configured value
     // If MP3 player is active: change track
     if ( localfile &&
          ( ( datamode & DATA ) != 0 ) &&              // MP# player active?
@@ -5120,10 +5510,13 @@ const char* analyzeCmd ( const char* par, const char* val )
 
     {
       setdatamode ( STOPREQD ) ;                      // Request STOP
+      autoplay = 0;
     }
     else
     {
       hostreq = true ;                                // Request UNSTOP
+      autoplay = config_autoplay;
+      aplaycnt=0;
     }
   }
   else if ( ( value.length() > 0 ) &&
@@ -5159,7 +5552,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
-      sprintf ( reply, "%s - %s", icyname.c_str(),
+      // mayk0000
+      if ( delog_debug )
+        sprintf ( reply, "[%d / %d] %s - %s", adcvol,deLogVolume(adcvol)/128,icyname.c_str(),
+                icystreamtitle.c_str() ) ;            // Streamtitle from metadata
+      else
+        sprintf ( reply, "%s - %s",icyname.c_str(),
                 icystreamtitle.c_str() ) ;            // Streamtitle from metadata
     }
   }
@@ -5193,6 +5591,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
     max_mp3loop_time = 0 ;                            // Start new check
+    delog_debug ^= 1;
   }
   // Commands for bass/treble control
   else if ( argument.startsWith ( "tone" ) )          // Tone command
@@ -5244,6 +5643,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.mqttpasswd = value.c_str() ;          // Yes, set broker password accordingly
     }
+  }
+  else if ( argument == "hostname" )
+  {
+    hostname = value;
   }
   else if ( argument == "debug" )                     // debug on/off request?
   {
@@ -5338,6 +5741,8 @@ void displayinfo ( uint16_t inx )
   }
   if ( tft )                                               // TFT active?
   {
+    if ( inx >= (oled_128_32 ? 1:3 ))
+      width -= dsp_presetWidth( );
     dsp_fillRect ( 0, p->y, width, p->height, BLACK ) ;    // Clear the space for new info
     if ( ( dsp_getheight() > 64 ) && ( p->y > 1 ) )        // Need and space for divider?
     {
@@ -5368,7 +5773,8 @@ void gettime()
   static int16_t delaycount = 0 ;                           // To reduce number of NTP requests
   static int16_t retrycount = 100 ;
 
-  if ( tft )                                                // TFT used?
+  if ( tft || ( ini_block.tm1637_clk_pin >= 0 ) ||
+    (ini_block.ht1621_cs_pin >= 0))  // TFT used?
   {
     if ( timeinfo.tm_year )                                 // Legal time found?
     {
@@ -5514,7 +5920,26 @@ void handle_spec()
   }
   else
   {
+    if ( ini_block.adc_vol_pin != -1 )
+    {
+static int last_adc_vol = 0;
+      int new_block_vol = (adc_delog_vol ? deLogVolume(adcvol):adcvol)/128;
+      if ( new_block_vol > VOLMAX )
+		    new_block_vol = VOLMAX;
+      if ( last_adc_vol != new_block_vol )
+      {
+        last_adc_vol = new_block_vol;
+	      ini_block.reqvol = new_block_vol;
+      }
+    }
     vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
+  }
+  if ((ini_block.adc_pos_pin != -1 ) && ( nadcpos != last_nadcpos ))
+  {
+    char txt[16];
+    sprintf(txt,"%d",nadcpos);
+    analyzeCmd( "preset", txt);
+    last_nadcpos = nadcpos;
   }
   if ( reqtone )                                              // Request to change tone?
   {
@@ -5527,6 +5952,8 @@ void handle_spec()
     if ( NetworkFound  )                                      // Time available?
     {
       displaytime ( timetxt ) ;                               // Write to TFT screen
+      tm1637_displayTime ( timetxt );                         // additional tm1637
+      ht1621_displayTime ( timetxt );
       displayvolume() ;                                       // Show volume on display
       displaybattery() ;                                      // Show battery charge on display
     }
@@ -5561,6 +5988,49 @@ void spftask ( void * parameter )
     vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;                       // Pause for a short time
     adcval = ( 15 * adcval +                                        // Read ADC and do some filtering
                adc1_get_raw ( ADC1_CHANNEL_0 ) ) / 16 ;
+    if ( ini_block.adc_vol_pin != -1 )
+	  {
+      int raw=0; int i;
+      adc1_channel_t ch=ADC1_CHANNEL_0;
+      if ( ini_block.adc_vol_pin == 33 )
+       ch = ADC1_CHANNEL_5;
+      else if ( ini_block.adc_vol_pin == 36 )
+       ch = ADC1_CHANNEL_0;
+      else if ( ini_block.adc_vol_pin == 39 )
+       ch = ADC1_CHANNEL_3;
+      
+      for ( i=0; i<10; i++ )
+      {
+	     raw += adc1_get_raw ( ch );
+      }
+      raw /=10;
+
+      if ( adc_vol_reverse )
+		    raw = 4095 - raw;
+      adcvol = adcvol ? ( adc_vol_lowp * adcvol + raw ) / (adc_vol_lowp+1): raw ;							// volume
+    }
+    if ( ini_block.adc_pos_pin != -1 )
+	  {
+      int raw=0; int i;
+      adc1_channel_t ch=ADC1_CHANNEL_3;
+      if ( ini_block.adc_pos_pin == 33 )
+        ch = ADC1_CHANNEL_5;
+      else if ( ini_block.adc_pos_pin == 36 )
+        ch = ADC1_CHANNEL_0;
+      else if ( ini_block.adc_pos_pin == 39 )
+        ch = ADC1_CHANNEL_3;
+      
+      for ( i=0; i<10; i++ )
+      {
+        raw += adc1_get_raw ( ch );
+      }
+      raw /=10;
+
+      if ( enc_reverse )
+        raw = 4095 - raw;
+      adcpos = adcpos ? ( adc_pos_lowp * adcpos + raw ) / (adc_pos_lowp+1): raw;
+      nadcpos = (maxpreset>0) ? (int)adcpos*maxpreset/4096:0;
+    }
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }

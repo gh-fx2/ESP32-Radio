@@ -23,6 +23,8 @@
 #define dsp_getwidth()      320                                    // Get width of screen
 #define dsp_getheight()     240                                    // Get height of screen
 #define dsp_usesSPI()       false                                  // Does not use SPI
+#define dsp_showPreset(a)                                          // big font preset
+#define dsp_presetWidth()		0
 
 void* tft = (void*)1 ;                                             // Dummy declaration
 
@@ -172,4 +174,3 @@ void displaytime ( const char* str, uint16_t color )
     oldtim = str[7] ;                              // Remember for next compare
   }
 }
-

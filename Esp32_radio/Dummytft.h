@@ -23,6 +23,8 @@
 #define dsp_getheight()     0                                      // Get height of screen
 #define dsp_update()                                               // Updates to the physical screen
 #define dsp_usesSPI()       false                                  // Does not use SPI
+#define dsp_showPreset(a)
+#define dsp_presetWidth()		0
 
 void* tft = NULL ;
 
@@ -69,5 +71,3 @@ void displayvolume()
 void displaytime ( const char* str, uint16_t color )
 {
 }
-
-

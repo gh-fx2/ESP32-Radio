@@ -66,6 +66,8 @@
 #define dsp_getwidth()      16                                     // Get width of screen
 #define dsp_getheight()     2                                      // Get height of screen
 #define dsp_usesSPI()       false                                  // Does not use SPI
+#define dsp_showPreset(a)                                          // big font preset
+#define dsp_presetWidth()		0
 
 #define TFTSECS 4                                           // 4 sections, only 2 used
 scrseg_struct     tftdata[TFTSECS] =                        // Screen divided in 4 segments

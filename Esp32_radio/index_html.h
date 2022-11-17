@@ -1,6 +1,6 @@
 // index.html file in raw data format for PROGMEM
-//
-#define index_html_version 180102
+// Hardcoded downvolume=/upvolume= changed from 2 to 1. Bad design! (tcfkat 20210303)
+#define index_html_version 220130
 const char index_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
@@ -16,6 +16,7 @@ const char index_html[] PROGMEM = R"=====(
    <li><a class="pull-left active" href="/index.html">Control</a></li>
    <li><a class="pull-left" href="/config.html">Config</a></li>
    <li><a class="pull-left" href="/mp3play.html">MP3 player</a></li>
+   <li><a class="pull-left" href="/search.html">Search</a></li>
    <li><a class="pull-left" href="/about.html">About</a></li>
   </ul>
   <br><br><br>
@@ -23,8 +24,8 @@ const char index_html[] PROGMEM = R"=====(
    <h1>** ESP32 Radio **</h1>
    <button class="button" onclick="httpGet('downpreset=1')">PREV</button>
    <button class="button" onclick="httpGet('uppreset=1')">NEXT</button>
-   <button class="button" onclick="httpGet('downvolume=2')">VOL-</button>
-   <button class="button" onclick="httpGet('upvolume=2')">VOL+</button>
+   <button class="button" onclick="httpGet('downvolume=1')">VOL-</button>
+   <button class="button" onclick="httpGet('upvolume=1')">VOL+</button>
    <button class="button" onclick="httpGet('mute')">(un)MUTE</button>
    <button class="button" onclick="httpGet('stop')">(un)STOP</button>
    <button class="button" onclick="httpGet('status')">STATUS</button>
@@ -143,7 +144,7 @@ const char index_html[] PROGMEM = R"=====(
    <input type="text" width="600px" size="72" id="resultstr" placeholder="Waiting for a command...."><br>
    <br><br>
    <p>Find new radio stations at <a target="blank" href="http://www.internet-radio.com">http://www.internet-radio.com</a></p>
-   <p>Examples: us1.internet-radio.com:8105, skonto.ls.lv:8002/mp3, 85.17.121.103:8800</p><br>
+   <p>or at <a target="blank" href="https://www.radio-browser.info/">https://www.radio-browser.info/</a></p><br>
   </center>
   <script>
    function httpGet ( theReq )
