@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Thu, 12 May 2022 12:14:19 GMT+1"
+#define VERSION     "Fri, 23 Dez 2022 14:19:22 GMT+1"
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -436,6 +436,8 @@ bool              updatereq = false ;                    // Request to update so
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
 bool              config_autoplay = false;
+bool              save_volume = true;
+bool              vs1053_load_usercode = false;
 bool              autoplay = false;
 uint16_t          aplaycnt=0;
 String            networks ;                             // Found networks in the surrounding
@@ -463,9 +465,11 @@ uint16_t          maxpreset = 0;
 uint16_t          last_nadcpos = 0;
 uint8_t           adc_vol_reverse=0;
 uint8_t           adc_delog_vol=0;                       // delog values 2048 .. 4096 more linear
+uint8_t           delog_debug=0;                        // show delog values in web-interface ; toggle via TEST-Btn
 uint8_t           adc_vol_lowp=3;                       // (old*3+new)/4
 uint8_t           adc_pos_lowp=3;                        // (old*3)+new)/4
 uint8_t           ht1621_lcd_type=0;                     // kind of glass-lcd
+char              *webauth_string=0;                     // web auth on guest hotspot
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
@@ -1001,7 +1005,8 @@ void VS1053::begin()
   //printDetails ( "20 msec after reset" ) ;
   if ( testComm ( "Slow SPI, Testing VS1053 read/write registers..." ) )
   {
-//fx2:    LoadUserCodes();
+	if ( vs1053_load_usercode )
+       LoadUserCodes();
     // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
     // when playing MP3.  You can modify the board, but there is a more elegant way:
     wram_write ( 0xC017, 3 ) ;                            // GPIO DDR = 3
@@ -2076,6 +2081,62 @@ void stop_mp3client ()
   mp3client.stop() ;                               // Stop stream client
 }
 
+void webauth( char *url )
+{
+  int timeout=0;
+  char host[32];
+  int  len, port=80;
+  char *path, *portp;
+
+  if ( !strncmp(url,"http://",7) )
+    url+=7;
+  else if ( !strncmp(url,"https://",8) )
+    url+=8;
+  path=strchr(url,'/');
+  if ( !path )
+    return;
+  len=path-url;
+  if (( len > 31 ) || ( len < 1 ))
+    return;
+  memcpy(host,url,len);
+  *(host+len)=0;
+  portp=strchr(host,':');
+  if ( portp )
+  {
+    *portp=0;
+    port=atoi(portp+1);
+  }
+
+  if ( mp3client.connect ( host, port ) )
+  {
+    if ( portp )
+      *portp=':';
+    mp3client.print ( String ( "GET " ) + path + String( " HTTP/1.1\r\n" ) +
+                      String ( "Host: ") + host + String("\r\n" ) +
+                      String ( "Connection: keep-alive\r\n\r\n" ) ) ;
+    
+    while ( mp3client.available() == 0 )
+    {
+      delay ( 200 ) ;                                 // Give server some time
+      if ( ++timeout > 25 )                           // No answer in 5 seconds?
+        break;
+    }
+    if ( !mp3client.available() )
+    {
+      mp3client.print ( String ( "GET /trustme.lua?accept= HTTP/1.1\r\n" ) +
+                      String ( "Host: 192.168.179.1:8186\r\n" ) +
+                      String ( "Connection: keep-alive\r\n\r\n" ) ) ;
+      delay( 800 );
+    }
+    if ( mp3client.available() )
+    {
+      String sreply;
+      sreply = mp3client.readStringUntil ( '>' ) ;
+    }
+    mp3client.stop();
+  }
+//  ht1621_showIP( text );
+}
 
 //**************************************************************************************************
 //                                    C O N N E C T T O H O S T                                    *
@@ -2232,6 +2293,10 @@ bool connectwifi()
       tm1637_showIP( ipaddress.c_str() );
       ht1621_showIP( ipaddress.c_str() );
     }
+
+    if ( webauth_string )
+      webauth( webauth_string );
+
 #ifdef ENABLE_VIM878
     if ( dsp_show_ip && ( ini_block.vim878_cs_pin >= 0 ))
       vim878.timeText( pfs, 10000 );
@@ -2650,6 +2715,10 @@ void readFlags()
            oled_128_32 = BoolOfVal(val.c_str());
         else if ( para.startsWith("autoplay") )
            config_autoplay = BoolOfVal(val.c_str());
+        else if ( para.startsWith("save_vol") )
+           save_volume = BoolOfVal(val.c_str());
+        else if ( para.startsWith("vs1053_load_usercode") )
+           vs1053_load_usercode = BoolOfVal(val.c_str());
         else if ( para.startsWith("max_preset") )
         {
            maxpreset = val.toInt();
@@ -2666,6 +2735,10 @@ void readFlags()
         {
           if ( val.startsWith("denver_tr36") )
              ht1621_lcd_type = HT1621_T_DENVER_TR36;
+          else if ( val.startsWith("grundig_bay100") )
+             ht1621_lcd_type = HT1621_T_GRUNDIG_BAY100;
+          else if ( val.startsWith("check") )
+             ht1621_lcd_type = HT1621_T_CHECK;
         }
         else if ( para.startsWith("save_tone_values") )
           save_tone_values = BoolOfVal(val.c_str());
@@ -4133,7 +4206,7 @@ void handleSaveReq()
   savetime = millis() ;                                   // Set time of last save
   if ( ini_block.adc_pos_pin == -1 )
      nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
-  if ( ini_block.adc_vol_pin == -1 )
+  if ( save_volume && ( ini_block.adc_vol_pin == -1 ))
      nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
 
   if ( save_tone_values )
@@ -5240,15 +5313,19 @@ const char* analyzeCmd ( const char* str )
 
 int deLogVolume( int in )
 {
-  int re_adcvol=in;
-  float bas=0, rbas=0;
-  if ( in > 2048 )
+  int i;
+  int v[]={ 25,   40,   90,   190,  340,  500,  700,  900,  1150,    //10..18
+            1400, 1700, 2000, 2350, 2700, 3100, 3500, 3950, 4100,    //19..27
+            4300, 0};
+           
+  if ( !in )
+    return 0;
+  for( i=0; v[i]; i++ )
   {
-    bas = (float)in-2048;
-    rbas = bas/2048;
-    re_adcvol = (int)(pow(rbas,10)*2048+2048);
+    if ( in < v[i] )
+      return((i+10)*128);
   }
-  return re_adcvol;
+  return 4096;
 }
 
 
@@ -5345,7 +5422,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
-    // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
+    // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting   
     oldvol = vs1053player->getVolume() ;              // Get current volume
     if ( relative )                                   // + relative setting?
     {
@@ -5364,6 +5441,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       ini_block.reqvol = VOLMAX ;                     // Limit to normal values (tcfkat 20210303)
     }
     muteflag = false ;                                // Stop possibly muting
+// mayk000
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
   }
@@ -5373,6 +5451,12 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument.indexOf ( "ir_" ) >= 0 )         // Ir setting?
   { // Do not handle here
+  }
+  else if ( argument == "webauth" )
+  {
+    if ( webauth_string )
+      free( webauth_string );
+    webauth_string = strdup(value.c_str());
   }
   else if ( argument.indexOf ( "preset_" ) >= 0 )     // Enumerated preset?
   { // Do not handle here
@@ -5472,7 +5556,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
-      sprintf ( reply, "%s - %s", icyname.c_str(),
+      // mayk0000
+      if ( delog_debug )
+        sprintf ( reply, "[%d / %d] %s - %s", adcvol,deLogVolume(adcvol)/128,icyname.c_str(),
+                icystreamtitle.c_str() ) ;            // Streamtitle from metadata
+      else
+        sprintf ( reply, "%s - %s",icyname.c_str(),
                 icystreamtitle.c_str() ) ;            // Streamtitle from metadata
     }
   }
@@ -5506,6 +5595,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
     max_mp3loop_time = 0 ;                            // Start new check
+    delog_debug ^= 1;
   }
   // Commands for bass/treble control
   else if ( argument.startsWith ( "tone" ) )          // Tone command
@@ -5836,9 +5926,15 @@ void handle_spec()
   {
     if ( ini_block.adc_vol_pin != -1 )
     {
-      ini_block.reqvol = (adc_delog_vol ? deLogVolume(adcvol):adcvol)/128;
-      if ( ini_block.reqvol > VOLMAX )
-		ini_block.reqvol = VOLMAX;
+static int last_adc_vol = 0;
+      int new_block_vol = (adc_delog_vol ? deLogVolume(adcvol):adcvol)/128;
+      if ( new_block_vol > VOLMAX )
+		    new_block_vol = VOLMAX;
+      if ( last_adc_vol != new_block_vol )
+      {
+        last_adc_vol = new_block_vol;
+	      ini_block.reqvol = new_block_vol;
+      }
     }
     vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
   }

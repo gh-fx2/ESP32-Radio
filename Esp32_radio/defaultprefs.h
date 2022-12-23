@@ -95,6 +95,7 @@ const char defprefs_txt[] PROGMEM = R"=====(
 flag_00 = enc_direct_switch = true
 flag_01 = adc_vol_reverse = false
 flag_02 = autoplay = true
+flag_03 = save_vol = false
 # flag_03 = max_preset = 5
 # flag_04 = oled_128x32 = flase
 #
