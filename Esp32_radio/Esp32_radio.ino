@@ -163,7 +163,8 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Fri, 23 Dez 2022 14:19:22 GMT+1"
+#define VERSION     "Sun, 01 Jan 2023 21:03:22 GMT+1"
+// set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
 #define UPDATEHOST  "unwx.de"                    // Host for software updates
@@ -2735,8 +2736,8 @@ void readFlags()
         {
           if ( val.startsWith("denver_tr36") )
              ht1621_lcd_type = HT1621_T_DENVER_TR36;
-          else if ( val.startsWith("grundig_bay100") )
-             ht1621_lcd_type = HT1621_T_GRUNDIG_BAY100;
+          else if ( val.startsWith("grundig_boy100") )
+             ht1621_lcd_type = HT1621_T_GRUNDIG_BOY100;
           else if ( val.startsWith("check") )
              ht1621_lcd_type = HT1621_T_CHECK;
         }

@@ -47,7 +47,7 @@ preset_01 = edge02.live-sm.absolutradio.de/absolut-bella/stream/mp3 # Absolut Be
 preset_02 = 138.201.252.6/brf_128    # BRF 91.4
 preset_03 = streams.80s80s.de/web/aac-64 # 80s80s
 preset_04 = dispatcher.rndfnk.com/br/br1/obb/mp3/mid # Bayern 1
-preset_05 = ndr-ndr1radiomv-schwerin.cast.addradio.de/ndr/ndr1radiomv/schwerin/mp3/128/stream.mp3 # NDR-1 MV
+preset_05 = icecast.ndr.de/ndr/ndr1radiomv/neubrandenburg/mp3/128/stream.mp3 # NDR-1 MV
 #
 # Clock offset and daylight saving time
 clk_server = pool.ntp.org                            # Time server to be used

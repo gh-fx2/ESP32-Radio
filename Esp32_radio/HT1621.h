@@ -24,7 +24,7 @@
 #define HT1621_T_VIM878		1
 #define HT1621_T_DENVER_TR36		2
 #define HT1621_T_CHECK    3
-#define HT1621_T_GRUNDIG_BAY100		4
+#define HT1621_T_GRUNDIG_BOY100		4
 
 typedef void (*t1Proc)( char *p1 );
 
@@ -43,12 +43,12 @@ public:
   void denverTr36_loop( void );
   void denverTr36_addTimed( uint8_t *data, uint32_t ms, uint8_t kind );
   void denverTr36_infoUpdate( void );
-  void grundigBay100_showIP( const char *in );
-  void grundigBay100_showPreset( int preset );
-  void grundigBay100_displayTime ( const char* str );
-  void grundigBay100_loop( void );
-  void grundigBay100_addTimed( uint8_t *data, uint32_t ms, uint8_t kind, uint8_t nbytes );
-  void grundigBay100_infoUpdate( void );
+  void grundigBoy100_showIP( const char *in );
+  void grundigBoy100_showPreset( int preset );
+  void grundigBoy100_displayTime ( const char* str );
+  void grundigBoy100_loop( void );
+  void grundigBoy100_addTimed( uint8_t *data, uint32_t ms, uint8_t kind, uint8_t nbytes );
+  void grundigBoy100_infoUpdate( void );
 
 private:
 	int _cs_p;
@@ -117,7 +117,7 @@ HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t)
    data[5] = 0x40;
    update(data,8);
  }
- else if ( t == HT1621_T_GRUNDIG_BAY100 )
+ else if ( t == HT1621_T_GRUNDIG_BOY100 )
  {
    data[2] = 0x04;
    data[4] = 0x40;    // 0x84 = 2,  0x0C = 1
@@ -163,7 +163,7 @@ void HT1621Display::update( uint8_t *buffer, int num_bytes )
 void HT1621Display::update( uint8_t *buffer, int off, int num_bytes )
 {
   int i;
-  unsigned char addr = off;
+  unsigned char addr = off*8;
   digitalWrite(_cs_p, LOW);
   wrDATA(0xa0, 3);
   wrDATA(addr, 6);
@@ -184,8 +184,8 @@ void ht1621_loop( void )
   case HT1621_T_DENVER_TR36 :
       ht1621->denverTr36_loop( );
       break;
-  case HT1621_T_GRUNDIG_BAY100 :
-      ht1621->grundigBay100_loop( );
+  case HT1621_T_GRUNDIG_BOY100 :
+      ht1621->grundigBoy100_loop( );
       break;
   }
 }
@@ -202,8 +202,8 @@ void ht1621_showIP( const char *ip )
   case HT1621_T_DENVER_TR36 :
       ht1621->denverTr36_showIP( ip );
       break;
-  case HT1621_T_GRUNDIG_BAY100 :
-      ht1621->grundigBay100_showIP( ip );
+  case HT1621_T_GRUNDIG_BOY100 :
+      ht1621->grundigBoy100_showIP( ip );
       break;
   }
 }
@@ -214,8 +214,8 @@ void ht1621_displayTime( const char *str )
     return;
   if ( ht1621->_type == HT1621_T_DENVER_TR36 )
     ht1621->denverTr36_displayTime( str );
-  else if ( ht1621->_type == HT1621_T_GRUNDIG_BAY100 )
-    ht1621->grundigBay100_displayTime( str );
+  else if ( ht1621->_type == HT1621_T_GRUNDIG_BOY100 )
+    ht1621->grundigBoy100_displayTime( str );
 }
 
 void ht1621_showPreset( int preset )
@@ -224,8 +224,8 @@ void ht1621_showPreset( int preset )
     return;
   if ( ht1621->_type == HT1621_T_DENVER_TR36 )
     ht1621->denverTr36_showPreset( preset );
-  else if ( ht1621->_type == HT1621_T_GRUNDIG_BAY100 )
-    ht1621->grundigBay100_showPreset( preset );
+  else if ( ht1621->_type == HT1621_T_GRUNDIG_BOY100 )
+    ht1621->grundigBoy100_showPreset( preset );
 }
 
 void ht1621_infoUpdate( void )
@@ -234,12 +234,12 @@ void ht1621_infoUpdate( void )
     return;
   if ( ht1621->_type == HT1621_T_DENVER_TR36 )
     ht1621->denverTr36_infoUpdate( );
-  else if ( ht1621->_type == HT1621_T_GRUNDIG_BAY100 )
-    ht1621->grundigBay100_infoUpdate( );
+  else if ( ht1621->_type == HT1621_T_GRUNDIG_BOY100 )
+    ht1621->grundigBoy100_infoUpdate( );
 }
 
 #include "VIM878.h"
 #include "DENVER_TR36.h"
-#include "GRUNDIG_BAY100.h"
+#include "GRUNDIG_BOY100.h"
 
 #endif
