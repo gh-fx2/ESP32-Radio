@@ -16,12 +16,12 @@ flag_00 .. 31 = ....    # () is not default
   adc_delog_vol = true/(false)          # make adc-value lineary in 2nd half
   adc_vol_lowp = <num>                  # low pass def:15, (old*15+new)/16
   adc_pos_lowp = <num>                  # low pass def:3, (old*3+new)/4
-  ht1621_lcd_type = none|denver_tr36 ** # display connected to ht1621
+  ht1621_lcd_type = **                  # display connected to ht1621
   save_tone_values = true/(false)       # save tone-values every 10 minutes
   save_vol = true/(false)               # save vol if changed into eeprom
   vs1053_load_usercode = (true)/false   # load special user code into vs1053
 
-* next displays designed as additional screens (no replace of tft/oled/..)
+displays designed as additional screens (no replace of tft/oled/..)
 add additional TM1637 7Seg display
 pin_tm1637_clk
 pin_tm1637_dio
@@ -36,8 +36,8 @@ pin_adc_pos   # poti for pos (need max_preset for scale divide)
 
 webauth       # send this GET request after connect wlan
 
-ht1621_lcd_type: supported yypes:
- none              :
+** ht1621_lcd_type: supported types:
+ none              : -
  denver_tr36       : LCD from radio 'Denver TR36'
  grundig_boy       : LCD from radio 'Grundig Prima Boy 100'
  check             : all segments on (debug / investigation)
