@@ -30,9 +30,7 @@ mqttuser = none
 mqttpasswd = none
 mqqprefix = none
 # Enter your WiFi network specs here:
-wifi_01 = Sprite/WwidK25aiFR
-wifi_02 = Sprite2G/WwidK25aiFR
-wifi_03 = marconet/p0tzb11tz
+wifi_01 = Fanta/tztwe7736hhddb
 #
 volume = 11
 toneha = 0
@@ -106,9 +104,7 @@ mqttuser = none
 mqttpasswd = none
 mqqprefix = none
 # Enter your WiFi network specs here:
-wifi_01 = Sprite/WwidK25aiFR
-wifi_02 = Sprite2G/WwidK25aiFR
-wifi_03 = marconet/p0tzb11tz
+wifi_01 = Fanta/tztwe7736hhddb
 #
 volume = 11
 toneha = 0
