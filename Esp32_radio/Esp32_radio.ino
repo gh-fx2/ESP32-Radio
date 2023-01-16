@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Sun, 01 Jan 2023 21:03:22 GMT+1"
+#define VERSION     "Mon, 16 Jan 2023 08:08:54 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -3490,6 +3490,8 @@ uint8_t BoolOfVal( const char * val )
   return atoi(val) ? 1:0;
 }
 
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 //**************************************************************************************************
 //                                           S E T U P                                             *
 //**************************************************************************************************
@@ -3644,6 +3646,11 @@ void setup()
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
+
+/* disable brown-out detection */
+  uint32_t brown_reg_temp = READ_PERI_REG(RTC_CNTL_BROWN_OUT_REG);
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG,0);
+
   WiFi.disconnect();                                     // After restart router could still  
   delay ( 500 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
@@ -3660,6 +3667,9 @@ void setup()
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                hostname.c_str() ) ;
   listNetworks() ;                                       // Find WiFi networks
+
+/* now enable brown-out */
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG,brown_reg_temp);
 
   vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
