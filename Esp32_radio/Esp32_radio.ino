@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Mon, 16 Jan 2023 08:08:54 GMT+1"
+#define VERSION     "Mon, 19 Mar 2023 13:30:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -267,6 +267,9 @@ char        utf8ascii ( char ascii ) ;            // Convert UTF8 char to normal
 void        utf8ascii_ip ( char* s ) ;            // In place conversion full string
 String      utf8ascii ( const char* s ) ;
 uint32_t    ssconv ( const uint8_t* bytes ) ;
+int         gboy100_m5_off=0;
+uint32_t    gboy100_sleep=0;
+
 
 
 //**************************************************************************************************
@@ -459,6 +462,7 @@ uint32_t          ir_1 = 1650 ;                          // Average duration of 
 struct tm         timeinfo ;                             // Will be filled by NTP server
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
+bool              matBtnEnable = false;                  // Btn-Matrix on Grundig Boy 100
 uint16_t          adcvol = 0;
 uint16_t          adcpos = 0;
 uint16_t          nadcpos = 0;
@@ -2136,7 +2140,6 @@ void webauth( char *url )
     }
     mp3client.stop();
   }
-//  ht1621_showIP( text );
 }
 
 //**************************************************************************************************
@@ -2743,6 +2746,19 @@ void readFlags()
         }
         else if ( para.startsWith("save_tone_values") )
           save_tone_values = BoolOfVal(val.c_str());
+        else if ( para.startsWith("grundig_matrix_button") )
+              matBtnEnable = BoolOfVal(val.c_str());
+        else if ( para.startsWith("grundig_boy100") )
+        {
+          if ( BoolOfVal(val.c_str()) )
+          {
+            ht1621_lcd_type = HT1621_T_GRUNDIG_BOY100;
+            matBtnEnable = 1;
+            ini_block.ht1621_cs_pin = 14;
+            ini_block.ht1621_data_pin = 13;
+            ini_block.ht1621_wr_pin = 16;
+          }
+        }
       }
       continue;
     }
@@ -3492,6 +3508,29 @@ uint8_t BoolOfVal( const char * val )
 
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+
+static void _btnMatrixSetup( void )
+{
+  /* 1 ... 9 :  22, 39, 35, 25   26, 27, 21, 5, 17 */
+  if ( !matBtnEnable )
+    return;
+  dbgprint("matrix button Enabled");
+  pinMode ( 26, OUTPUT );
+  pinMode ( 27, OUTPUT );
+  pinMode ( 21, OUTPUT );
+  pinMode (  5, OUTPUT );
+  pinMode ( 17, OUTPUT );
+  digitalWrite( 26, HIGH );  /* MEMO, - , M2,  M3 */
+  digitalWrite( 27, LOW );  /* +5,   -,  M4 , -  */
+  digitalWrite( 21, LOW );  /* UP,   -,  -,   -  */
+  digitalWrite( 5, LOW );   /* -,    -,  PWR, MODE */
+  digitalWrite( 17, LOW );  /* ALRM, -,  -,   -,  */
+  pinMode ( 22, INPUT_PULLUP ) ;
+  pinMode ( 39, INPUT_PULLUP ) ;
+  pinMode ( 35, INPUT_PULLUP ) ;
+  pinMode ( 25, INPUT_PULLUP ) ;
+}
+
 //**************************************************************************************************
 //                                           S E T U P                                             *
 //**************************************************************************************************
@@ -3730,6 +3769,8 @@ void setup()
   configTime ( ini_block.clk_offset * 3600,
                ini_block.clk_dst * 3600,
                ini_block.clk_server.c_str() ) ;          // GMT offset, daylight offset in seconds
+  setenv("TZ","CET-1CEST,M3.5.0,M10.5.0/3",1);
+  tzset();
   timeinfo.tm_year = 0 ;                                 // Set TOD to illegal
   // Init settings for rotary switch (if existing).
   // if ( ( ini_block.enc_clk_pin + ini_block.enc_dt_pin + ini_block.enc_sw_pin ) > 2 )
@@ -3751,6 +3792,7 @@ void setup()
                ini_block.enc_dt_pin,
                ini_block.enc_sw_pin) ;
   }
+  _btnMatrixSetup();
   if ( NetworkFound )
   {
     gettime() ;                                           // Sync time
@@ -4705,7 +4747,127 @@ void mp3loop()
   }
 }
 
+static int activ_matPin = 0;
+static byte oPin[5] = { 26, 27, 21, 5, 17 };
+static byte iPin[4] = { 22, 39, 35, 25 };
 
+static void btnMatrix_loop()
+{
+  byte xval=0;
+  int  i;
+static int ovalcnt=0;
+static byte oval=0;
+  
+  if ( !matBtnEnable )
+    return;
+
+  for( i=0; i<4; i++ )
+  {
+    if ( digitalRead ( iPin[i] ) == LOW )
+      continue;
+    if ( xval )
+    { /* two buttons */
+      xval = 0xff;
+      break;
+    }
+    xval = activ_matPin*4+i+1;
+  }
+  if ( xval != oval )
+  {
+     ovalcnt=0;
+     if(xval)
+     dbgprint("%d: xval=%d",activ_matPin,xval);
+  }
+  else
+  {
+    ovalcnt++;
+    if ( !xval && ( ovalcnt == 50 ))
+    {
+      digitalWrite( oPin[ activ_matPin ], LOW );
+      activ_matPin++;
+      if ( activ_matPin == 5 )
+        activ_matPin=0;
+      digitalWrite( oPin[ activ_matPin ], HIGH );
+      ovalcnt=0;
+      return;
+    }
+    if ( xval && (ovalcnt==130) )
+    {
+      dbgprint("button %d",xval);
+      switch( xval )
+      {
+      case 14:  /* sleep */
+        gboy100_sleep = gboy100_sleep ? 0 : 4909100;
+        break;
+      case 16:  /* mode */
+      case 1:   /* memo */
+      case 17:  /* alarm */
+        gboy100_m5_off=0;
+        break;
+      case 18:  /* snooze */
+        strcpy(cmd,"mute");
+        analyzeCmd( cmd );
+        gboy100_m5_off=0;
+        break;
+      case 9:  /* up */
+        strcpy(cmd,"uppreset=1");
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 10:  /* down */
+        strcpy(cmd,"downpreset=1");
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 2:   /* M1 */
+        sprintf(cmd,"preset=%d",gboy100_m5_off?5:0);
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 3:   /* M2 */
+        sprintf(cmd,"preset=%d",gboy100_m5_off?6:1);
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 4:   /* M3 */
+        sprintf(cmd,"preset=%d",gboy100_m5_off?7:2);
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 5:   /* M4 */
+        sprintf(cmd,"preset=%d",gboy100_m5_off?8:3);
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 6:   /* M5 */
+        sprintf(cmd,"preset=%d",gboy100_m5_off?9:4);
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      case 7:   /* M5+ */
+        gboy100_m5_off = gboy100_m5_off ? 0 : 50000;
+        break;
+      case 15:  /* PWR */
+        strcpy(cmd,"stop");
+        gboy100_m5_off=0;
+        analyzeCmd( cmd );
+        break;
+      }
+    }
+  }
+  oval=xval;
+  if ( gboy100_m5_off )
+    gboy100_m5_off--;
+  if ( gboy100_sleep )
+  {
+    gboy100_sleep--;
+    if ( !gboy100_sleep )
+    {
+      strcpy(cmd,"stop");
+      analyzeCmd( cmd );
+    }
+  }
+}
 //**************************************************************************************************
 //                                           L O O P                                               *
 //**************************************************************************************************
@@ -4755,6 +4917,7 @@ void loop()
   check_CH376() ;                                   // Check Flashdrive insert/remove
   tm1637_loop();
   ht1621_loop();
+  btnMatrix_loop();
 }
 
 

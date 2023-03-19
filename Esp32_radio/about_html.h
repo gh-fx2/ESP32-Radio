@@ -29,7 +29,7 @@ const char about_html[] PROGMEM = R"=====(
   Mods: fx2<br>
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
 	App (Android): <a target="blank" href="https://play.google.com/store/apps/details?id=com.thunkable.android.sander542jochems.ESP_Radio">Sander Jochems</a><br>
-	Date: 16 Jan 2023</p>
+	Date: 19 Mar 2023</p>
  </body>
 </html>
 )=====" ;

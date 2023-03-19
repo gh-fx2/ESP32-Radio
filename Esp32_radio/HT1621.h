@@ -61,6 +61,7 @@ private:
 	void update( uint8_t *buffer, int num_bytes );
   void update( uint8_t *buffer, int off, int num_bytes );
   void *_timed;
+  void *_extra;	// additional specific data
 };
 
 
@@ -105,6 +106,7 @@ HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t)
 	_type = t;
   _is_alpha = 0;
   _timed = 0;
+  _extra = 0;
   if ( t == HT1621_T_VIM878 )
     _is_alpha = 1;
 	config();

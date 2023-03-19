@@ -19,6 +19,15 @@ typedef struct _grundigBoy100Timed
   grundigBoy100TimedText tText[10];
 } grundigBoy100Timed;
 
+typedef struct _grundigBoy100Extra
+{
+  uint8_t	act_pos;
+  uint8_t   dpy_mode;
+} grundigBoy100Extra;
+
+/* for dpy_mode */
+#define GBM_M5PLUS 1
+
 void HT1621Display::grundigBoy100_addTimed( uint8_t *data, uint32_t ms, uint8_t kind, uint8_t nbytes )
 {
   grundigBoy100Timed *t = (grundigBoy100Timed*)_timed;
@@ -116,14 +125,19 @@ void grundigBoy100_putPosNum( int idx, int cpos, uint8_t *data )
 
 void grundigBoy100_fillTimeData( const char *buf, uint8_t *data )
 {
-  int i;
+  int i, loff=0;
   memset(data,0,7);
+  for( i=0; (i<4) && buf[i] && (buf[i] != '.'); i++ );
+  if ( i<3 )
+    loff=1;
   for( i=0; i<4; i++ )
   {
     int idx = buf[i]-48;
+    if ( !buf[i] )
+      break;
     if (( idx >= 0 ) && ( idx <= 9 ))
-      grundigBoy100_putTimeNum( idx, i, data );
-    else if (( buf[i] == '.' ) && ( i == 3 ))
+      grundigBoy100_putTimeNum( idx, loff+i, data );
+    else if (( buf[i] == '.' ) && ( i+loff == 3 ))
     {
       data[4] |= 8;
       break;
@@ -140,7 +154,7 @@ void grundigBoy100_fillPosData( const char *buf, uint8_t *data )
 {
   int i;
   memset(data,0,2);
-  for( i=0; i<2; i++ )
+  for( i=0; (i<2) && buf[i]; i++ )
   {
     int idx = buf[i]-48;
     if (( idx >= 0 ) && ( idx <= 9 ))
@@ -178,9 +192,19 @@ void HT1621Display::grundigBoy100_showIP( const char *ip )
 
 void HT1621Display::grundigBoy100_showPreset( int preset )
 {
-  uint8_t  data[9];
-  char     *c;
-  char     buf[6];
+  grundigBoy100Extra *extra = (grundigBoy100Extra*)_extra;
+  uint8_t  			data[9];
+  char     			*c;
+  char     			buf[6];
+
+  if ( !extra )
+  {
+    extra = (grundigBoy100Extra*)malloc(sizeof(grundigBoy100Extra));
+    extra->dpy_mode = 0;
+    _extra = extra;
+  }
+
+  extra->act_pos = preset;
 
   sprintf(buf,"%2d",preset);
 
@@ -190,10 +214,12 @@ void HT1621Display::grundigBoy100_showPreset( int preset )
 
 void HT1621Display::grundigBoy100_displayTime ( const char* str )
 {
+  grundigBoy100Extra *extra = (grundigBoy100Extra*)_extra;
   static char oldstr[9] = "........" ;             // For compare
   uint8_t     i,n, chg=0 ;  // Index in strings, index data
   uint8_t     showSec=0;
-  uint8_t     data[] = { 0,0,0,0,0,0,0 };
+  uint8_t     data[] = { 0,0,0,0,0,0,0,0,0,0,0,0,0 };
+  int         usz = 7;
 
   if ( !_timed )
     return;
@@ -238,8 +264,37 @@ void HT1621Display::grundigBoy100_displayTime ( const char* str )
        chg=1;
      oldstr[i] = str[i];
   }
-  data[6] |=2;
-  update( data, 7 );
+  if ( !gboy100_m5_off )
+  {
+    char buf[6];
+  	if ( extra && extra->dpy_mode & GBM_M5PLUS )
+  	{
+  		extra->dpy_mode ^= GBM_M5PLUS;
+  	  sprintf(buf,"%2d",extra->act_pos);
+  	  grundigBoy100_fillPosData( buf, data+7 );
+  		usz=9;
+  	}
+    data[6] |=2;		/* dislay 'M' */
+  }
+  else
+  {
+  	if ( extra && !(extra->dpy_mode & GBM_M5PLUS) )
+  		extra->dpy_mode ^= GBM_M5PLUS;
+
+    if ( showSec )  /* blink a '5' */
+    {
+      char buf[6];
+      strcpy(buf," 5");
+      grundigBoy100_fillPosData( buf, data+7 );
+    }
+	  usz=9;
+  }
+  if ( gboy100_sleep && showSec )
+    data[1] |= 0x20;
+  if ( (adcval < 2500) && (usz==9) )
+    data[8] |= 0x80;
+
+  update( data, usz );
 }
 
 void HT1621Display::grundigBoy100_infoUpdate( void )
@@ -249,7 +304,7 @@ void HT1621Display::grundigBoy100_infoUpdate( void )
 
   if ( t )
     t->tFill = 0;
-  grundigBoy100_addTimed( data, 20000, 50, 9 );
+  grundigBoy100_addTimed( data, 30000, 50, 9 );
 }
 
 void HT1621Display::grundigBoy100_loop( void )
