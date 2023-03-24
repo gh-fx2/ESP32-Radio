@@ -2,23 +2,25 @@
 Esp32-Edzelf mods by fx2
 
 flag_00 .. 31 = ....    # () is not default
-  enc_direct_switch = true/(false)		# change preset without button
-  adc_vol_reverse = true/(false)        # high-values -> low volume ?
-  rotate_screen = true/(false)          # ssd1306 - screen rotation 180°
-  tm1637_rotate = true/(false)          # tm1637 rotation 180°
-  enc_reverse = true/(false)            # switch left/right on encoder
-  dsp_brightness = 0..15                # oled+tm1637 brightness
-  dsp_show_time = (true)/false          # show clock (tm1637,ht1621)
-  dsp_show_ip = (true)/false            # show ip on boot
-  oled_128x32 = true/(false)            # use 128x32 instead of 128x64
   autoplay = true/(false)               # start play if STOP is detected
-  max_preset = <num>                    # divide adc_preset scale
   adc_delog_vol = true/(false)          # make adc-value lineary in 2nd half
-  adc_vol_lowp = <num>                  # low pass def:15, (old*15+new)/16
   adc_pos_lowp = <num>                  # low pass def:3, (old*3+new)/4
+  adc_vol_lowp = <num>                  # low pass def:15, (old*15+new)/16
+  adc_vol_reverse = true/(false)        # high-values -> low volume ?
+  dsp_brightness = 0..15                # oled+tm1637 brightness
+  dsp_show_ip = (true)/false            # show ip on boot
+  dsp_show_time = (true)/false          # show clock (tm1637,ht1621)
+  enc_direct_switch = true/(false)		# change preset without button
+  enc_reverse = true/(false)            # switch left/right on encoder
+  grundig_boy100 = (true)/false         # using special pcb for gr.boy100 **
+  grundig_matrix_button = (true)/false  # using button matrix of gr.boy100
   ht1621_lcd_type = **                  # display connected to ht1621
+  max_preset = <num>                    # divide adc_preset scale
+  oled_128x32 = true/(false)            # use 128x32 instead of 128x64
+  rotate_screen = true/(false)          # ssd1306 - screen rotation 180°
   save_tone_values = true/(false)       # save tone-values every 10 minutes
   save_vol = true/(false)               # save vol if changed into eeprom
+  tm1637_rotate = true/(false)          # tm1637 rotation 180°
   vs1053_load_usercode = (true)/false   # load special user code into vs1053
 
 displays designed as additional screens (no replace of tft/oled/..)
@@ -41,3 +43,12 @@ webauth       # send this GET request after connect wlan
  denver_tr36       : LCD from radio 'Denver TR36'
  grundig_boy       : LCD from radio 'Grundig Prima Boy 100'
  check             : all segments on (debug / investigation)
+
+** grundig_boy100
+ Especially for an extra designed pcb using in an grundig prima boy 100
+ radio. This option will set automated these options:
+  ht1621_lcd_type = grundig_boy
+  grundig_matrix_button = true
+  pin_ht1621_data = 13
+  pin_ht1621_cs = 14
+  pin_ht1621_wr = 16
