@@ -10,7 +10,7 @@ flag_00 .. 31 = ....    # () is not default
   dsp_brightness = 0..15                # oled+tm1637 brightness
   dsp_show_ip = (true)/false            # show ip on boot
   dsp_show_time = (true)/false          # show clock (tm1637,ht1621)
-  enc_direct_switch = true/(false)		# change preset without button
+  enc_direct_switch = true/(false)      # change preset without button
   enc_reverse = true/(false)            # switch left/right on encoder
   grundig_boy100 = (true)/false         # using special pcb for gr.boy100 **
   grundig_matrix_button = (true)/false  # using button matrix of gr.boy100
@@ -52,3 +52,8 @@ webauth       # send this GET request after connect wlan
   pin_ht1621_data = 13
   pin_ht1621_cs = 14
   pin_ht1621_wr = 16
+
+ Buttons: 1..10 direct selecting preset
+          snooze, pwr : mute & stop
+          mode : show ip
+          sleep : 30-min timer  on/off

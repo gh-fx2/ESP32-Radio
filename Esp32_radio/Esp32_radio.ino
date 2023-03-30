@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Mon, 19 Mar 2023 13:30:00 GMT+1"
+#define VERSION     "Thu, 30 Mar 2023 08:21:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -4751,6 +4751,24 @@ static int activ_matPin = 0;
 static byte oPin[5] = { 26, 27, 21, 5, 17 };
 static byte iPin[4] = { 22, 39, 35, 25 };
 
+static void _toggleStop( void )
+{
+  if ( datamode == STOPPED )
+  {
+    strcpy(cmd,"stop");
+    analyzeCmd( cmd );
+    strcpy(cmd,"mute");
+    analyzeCmd( cmd );
+  }
+  else
+  {
+    strcpy(cmd,"mute");
+    analyzeCmd( cmd );
+    strcpy(cmd,"stop");
+    analyzeCmd( cmd );
+  }
+}
+
 static void btnMatrix_loop()
 {
   byte xval=0;
@@ -4800,13 +4818,16 @@ static byte oval=0;
         gboy100_sleep = gboy100_sleep ? 0 : 4909100;
         break;
       case 16:  /* mode */
+        /* show-ip */
+        ht1621_showIP( ipaddress.c_str() );
+        break;
       case 1:   /* memo */
       case 17:  /* alarm */
         gboy100_m5_off=0;
         break;
       case 18:  /* snooze */
-        strcpy(cmd,"mute");
-        analyzeCmd( cmd );
+      case 15:  /* PWR */
+        _toggleStop();
         gboy100_m5_off=0;
         break;
       case 9:  /* up */
@@ -4847,11 +4868,6 @@ static byte oval=0;
       case 7:   /* M5+ */
         gboy100_m5_off = gboy100_m5_off ? 0 : 50000;
         break;
-      case 15:  /* PWR */
-        strcpy(cmd,"stop");
-        gboy100_m5_off=0;
-        analyzeCmd( cmd );
-        break;
       }
     }
   }
@@ -4863,8 +4879,7 @@ static byte oval=0;
     gboy100_sleep--;
     if ( !gboy100_sleep )
     {
-      strcpy(cmd,"stop");
-      analyzeCmd( cmd );
+      _toggleStop();
     }
   }
 }
