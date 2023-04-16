@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Thu, 30 Mar 2023 08:21:00 GMT+1"
+#define VERSION     "Sun, 14 Apr 2023 16:20:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -257,7 +257,8 @@ void        stop_mp3client () ;
 void        tftlog ( const char *str ) ;
 void        tftset ( uint16_t inx, const char *str ) ;
 void        tftset ( uint16_t inx, String& str ) ;
-void        playtask ( void * parameter ) ;       // Task to play the stream
+void        vs1053_playtask ( void * parameter ) ;       // Task to play the stream
+void        i2s_playtask ( void * parameter ) ;       // Task to play the stream
 void        spftask ( void * parameter ) ;        // Task for special functions
 void        gettime() ;
 void        reservepin ( int8_t rpinnr ) ;
@@ -318,17 +319,15 @@ struct ini_struct
   int8_t         tft_sda_pin ;                        // GPIO connected to SDA of I2C TFT screen
   int8_t         tft_bl_pin ;                         // GPIO to activate BL of display
   int8_t         tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
-  int8_t         tm1637_clk_pin;                      // GPIO TM1637 CLK
-  int8_t         tm1637_dio_pin;                      // GPIO TM1637 DIO
-  int8_t         ht1621_cs_pin;                       // GPIO HT1621 CS
-  int8_t         ht1621_wr_pin;                       // GPIO HT1621 WR
-  int8_t         ht1621_data_pin;                     // GPIO HT1621 DATA
   int8_t         sd_cs_pin ;                          // GPIO connected to CS of SD card
   int8_t         vs_cs_pin ;                          // GPIO connected to CS of VS1053
   int8_t         vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
   int8_t         vs_dreq_pin ;                        // GPIO connected to DREQ of VS1053
-  int8_t         vs_shutdown_pin ;                    // GPIO to shut down the amplifier
-  int8_t         vs_shutdownx_pin ;                   // GPIO to shut down the amplifier (inversed logic)
+  int8_t         amp_shutdown_pin ;                    // GPIO to shut down the amplifier
+  int8_t         amp_shutdownx_pin ;                   // GPIO to shut down the amplifier (inversed logic)
+  int8_t         i2s_bck_pin;                         // GPIO MAX98357A BCK
+  int8_t         i2s_lck_pin;                         //
+  int8_t         i2s_din_pin;                         //
   int8_t         spi_sck_pin ;                        // GPIO connected to SPI SCK pin
   int8_t         spi_miso_pin ;                       // GPIO connected to SPI MISO pin
   int8_t         spi_mosi_pin ;                       // GPIO connected to SPI MOSI pin
@@ -336,6 +335,12 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
+
+  int8_t         tm1637_clk_pin;                      // GPIO TM1637 CLK
+  int8_t         tm1637_dio_pin;                      // GPIO TM1637 DIO
+  int8_t         ht1621_cs_pin;                       // GPIO HT1621 CS
+  int8_t         ht1621_wr_pin;                       // GPIO HT1621 WR
+  int8_t         ht1621_data_pin;                     // GPIO HT1621 DATA
   int8_t         adc_vol_pin ;                        // can handle only 33, 36, 39 or -1
   int8_t         adc_pos_pin ;                    // can handle only 33, 36, 39 or -1
 } ;
@@ -424,6 +429,7 @@ char              metalinebf[METASIZ + 1] ;              // Buffer for metaline/
 int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
+String            audio_ct ;                             // Content-type, like "audio/aacp"
 String            ipaddress ;                            // Own IP-address
 String            hostname ;
 int               bitrate ;                              // Bitrate in kb/sec
@@ -463,6 +469,8 @@ struct tm         timeinfo ;                             // Will be filled by NT
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 bool              matBtnEnable = false;                  // Btn-Matrix on Grundig Boy 100
+bool              mute_with_stop = true;
+uint32_t          sleep_cycle = 4909100;
 uint16_t          adcvol = 0;
 uint16_t          adcpos = 0;
 uint16_t          nadcpos = 0;
@@ -485,6 +493,7 @@ uint8_t           dsp_brightness = 3 ;                   // tft->setBrightness()
 uint8_t           dsp_show_time = 1;                     // show time (on tm1637?)
 uint8_t           dsp_show_ip = 1;                       // show last segment of ip
 uint8_t           oled_128_32 = 0;                       // oled is not 128x64 ?
+uint8_t           do_i2s = 0;                           // use i2s - if pins defined
 std::vector<WifiInfo_t> wifilist ;                       // List with wifi_xx info
 // nvs stuff
 nvs_page                nvsbuf ;                         // Space for 1 page of NVS info
@@ -510,6 +519,9 @@ sv bool           tripleclick = false ;                  // True if triple click
 sv bool           longclick = false ;                    // True if longclick detected
 enum enc_menu_t { PRESET, VOLUME, TRACK } ;              // State for rotary encoder menu (tcfkat 20210303)
 enc_menu_t        enc_menu_mode = PRESET ;               // Default is now PRESET mode (tcfkat 20210303)
+
+int16_t i2s_getVolume();
+void i2s_setVolume( int16_t v );
 
 //
 struct progpin_struct                                    // For programmable input pins
@@ -1932,6 +1944,7 @@ String selectnextFSnode ( int16_t delta )
 //**************************************************************************************************
 bool connecttofile()
 {
+  audio_ct = String ( "audio/mpeg" ) ;                // Force mp3 mode
   if ( usb_sd == FS_USB )                             // File system depends on this switch
   {
     return connecttofile_USB() ;                      // Use USB
@@ -2653,19 +2666,19 @@ void readprogbuttons()
     }
   }
   // Now for the pin_fixed pins 0..34, identified by their GPIO pin number
-  for ( i = 0 ; i<35 ; i++ )   // Scan for all pins
+  for ( pinnr = 0 ; pinnr<35 ; pinnr++ )   // Scan for all pins
   {
-    sprintf ( mykey, "pin_fixed_%d", i ) ;                  // Form key in preferences
+    sprintf ( mykey, "pin_fixed_%d", pinnr ) ;                  // Form key in preferences
     if ( nvssearch ( mykey ) )
     {
       val = nvsgetstr ( mykey ) ;                           // Get the contents
       if ( val.length() )                                   // Does it exists?
       {
-        pinMode( 12, OUTPUT );
-        pinnr = atoi(val.c_str());
-        digitalWrite(12,  pinnr ? HIGH : LOW );
+        i = atoi(val.c_str());
+        pinMode( pinnr, OUTPUT );
+        digitalWrite(pinnr,  i ? HIGH : LOW );
 
-        dbgprint ( "pin_fixed_%d pin set to %s",i, pinnr?"HIGH":"LOW" ) ;
+        dbgprint ( "pin_fixed_%d pin set to %s",pinnr, i?"HIGH":"LOW" ) ;
       }
     }
   }
@@ -2711,6 +2724,8 @@ void readFlags()
            enc_reverse = BoolOfVal(val.c_str());
         else if ( para.startsWith("dsp_brightness") )
            dsp_brightness = val.toInt();
+        else if ( para.startsWith("sleep_cycle") )
+           sleep_cycle = val.toInt();
         else if ( para.startsWith("dsp_show_time") )
            dsp_show_time = BoolOfVal(val.c_str());
         else if ( para.startsWith("dsp_show_ip") )
@@ -2747,7 +2762,9 @@ void readFlags()
         else if ( para.startsWith("save_tone_values") )
           save_tone_values = BoolOfVal(val.c_str());
         else if ( para.startsWith("grundig_matrix_button") )
-              matBtnEnable = BoolOfVal(val.c_str());
+          matBtnEnable = BoolOfVal(val.c_str());
+        else if ( para.startsWith("mute_with_stop") )
+          mute_with_stop = BoolOfVal(val.c_str());
         else if ( para.startsWith("grundig_boy100") )
         {
           if ( BoolOfVal(val.c_str()) )
@@ -2842,13 +2859,17 @@ void readIOprefs()
     { "pin_vs_cs",     &ini_block.vs_cs_pin,        5 }, // VS1053 pins
     { "pin_vs_dcs",    &ini_block.vs_dcs_pin,       32 },
     { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      4 },
-    { "pin_shutdown",  &ini_block.vs_shutdown_pin,  -1 }, // Amplifier shut-down pin
-    { "pin_shutdownx", &ini_block.vs_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
+    { "pin_shutdown",  &ini_block.amp_shutdown_pin,  -1 }, // Amplifier shut-down pin
+    { "pin_shutdownx", &ini_block.amp_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
     { "pin_adc_vol",   &ini_block.adc_vol_pin,      -1 },
     { "pin_adc_pos",   &ini_block.adc_pos_pin,      -1 },
+    { "pin_i2s_bck",   &ini_block.i2s_bck_pin,      -1 }, // MAX98357A pins
+    { "pin_i2s_lck",   &ini_block.i2s_lck_pin,      -1 },
+    { "pin_i2s_din",   &ini_block.i2s_din_pin,      -1 },
+
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -3635,15 +3656,26 @@ void setup()
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
 #endif
-  
-  SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
+
+  if (( ini_block.i2s_bck_pin > 0 ) && ( ini_block.i2s_lck_pin > 0 ) && ( ini_block.i2s_din_pin > 0 ))
+    do_i2s=1;
+
+  if ( !do_i2s )
+  {
+    dbgprint("VS1053 mode");
+    SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
-  vs1053player = new VS1053 ( ini_block.vs_cs_pin,       // Make instance of player
+    vs1053player = new VS1053 ( ini_block.vs_cs_pin,       // Make instance of player
                               ini_block.vs_dcs_pin,
                               ini_block.vs_dreq_pin,
-                              ini_block.vs_shutdown_pin,
-                              ini_block.vs_shutdownx_pin ) ;
+                              ini_block.amp_shutdown_pin,
+                              ini_block.amp_shutdownx_pin ) ;
+  }
+  else
+  {
+    dbgprint("I2S mode");
+  }
   if ( ini_block.ir_pin >= 0 )
   {
     dbgprint ( "Enable pin %d for IR",
@@ -3710,7 +3742,8 @@ void setup()
 /* now enable brown-out */
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG,brown_reg_temp);
 
-  vs1053player->begin() ;                                // Initialize VS1053 player
+  if ( !do_i2s )
+    vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
   if ( oled_128_32 )
@@ -3809,9 +3842,9 @@ void setup()
   dataqueue = xQueueCreate ( QSIZ,                        // Create queue for communication
                              sizeof ( qdata_struct ) ) ;
   xTaskCreatePinnedToCore (
-    playtask,                                             // Task to play data in dataqueue.
+    do_i2s?i2s_playtask : vs1053_playtask,                                      // Task to play data in dataqueue.
     "Playtask",                                           // name of task.
-    1600,                                                 // Stack size of task
+    2000,                                                 // Stack size of task
     NULL,                                                 // parameter of the task
     2,                                                    // priority of the task
     &xplaytask,                                           // Task handle to keep track of created task
@@ -4466,9 +4499,9 @@ void chk_enc()
       {
         ini_block.reqvol = 0 ;                                // Limit to normal values
       }
-      else if ( ( ini_block.reqvol + rotationcount ) > VOLMAX ) // (tcfkat 20210303)
+      else if ( ( ini_block.reqvol + rotationcount ) > (do_i2s ? 100 : VOLMAX) ) // (tcfkat 20210303)
       {
-        ini_block.reqvol = VOLMAX ;                           // Limit to normal values (tcfkat 20210303)
+        ini_block.reqvol = (do_i2s ? 100 : VOLMAX) ;                           // Limit to normal values (tcfkat 20210303)
       }
       else
       {
@@ -4757,13 +4790,19 @@ static void _toggleStop( void )
   {
     strcpy(cmd,"stop");
     analyzeCmd( cmd );
-    strcpy(cmd,"mute");
-    analyzeCmd( cmd );
+    if ( mute_with_stop )
+    {
+      strcpy(cmd,"mute");
+      analyzeCmd( cmd );
+    }
   }
   else
   {
-    strcpy(cmd,"mute");
-    analyzeCmd( cmd );
+    if ( mute_with_stop )
+    {
+      strcpy(cmd,"mute");
+      analyzeCmd( cmd );
+    }
     strcpy(cmd,"stop");
     analyzeCmd( cmd );
   }
@@ -4815,7 +4854,7 @@ static byte oval=0;
       switch( xval )
       {
       case 14:  /* sleep */
-        gboy100_sleep = gboy100_sleep ? 0 : 4909100;
+        gboy100_sleep = gboy100_sleep ? 0 : sleep_cycle;
         break;
       case 16:  /* mode */
         /* show-ip */
@@ -4826,6 +4865,9 @@ static byte oval=0;
         gboy100_m5_off=0;
         break;
       case 18:  /* snooze */
+        strcpy(cmd,"mute");
+         analyzeCmd("mute");
+         break;
       case 15:  /* PWR */
         _toggleStop();
         gboy100_m5_off=0;
@@ -5082,12 +5124,12 @@ void handlebyte_ch ( uint8_t b )
           host = metaline.substring ( 17 ) ;           // Yes, get new URL
           hostreq = true ;                             // And request this one
         }
-        if ( lcml.indexOf ( "content-type" ) >= 0)     // Line with "Content-Type: xxxx/yyy"
+        if ( lcml.indexOf ( "content-type:" ) >= 0)     // Line with "Content-Type: xxxx/yyy"
         {
           ctseen = true ;                              // Yes, remember seeing this
-          String ct = metaline.substring ( 13 ) ;      // Set contentstype. Not used yet
-          ct.trim() ;
-          dbgprint ( "%s seen.", ct.c_str() ) ;
+          audio_ct = metaline.substring ( 13 ) ;       // Set contentstype
+          audio_ct.trim() ;
+          dbgprint ( "%s seen.", audio_ct.c_str() ) ;
         }
         if ( lcml.startsWith ( "icy-br:" ) )
         {
@@ -5612,7 +5654,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting   
-    oldvol = vs1053player->getVolume() ;              // Get current volume
+    oldvol = do_i2s ? i2s_getVolume() : vs1053player->getVolume() ;              // Get current volume
     if ( relative )                                   // + relative setting?
     {
       ini_block.reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
@@ -5625,9 +5667,9 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = 0 ;                          // Yes, keep at zero
     }
-    if ( ini_block.reqvol > VOLMAX )                  // (tcfkat 20210303)
+    if ( ini_block.reqvol > (do_i2s ? 100 : VOLMAX) )                  // (tcfkat 20210303)
     {
-      ini_block.reqvol = VOLMAX ;                     // Limit to normal values (tcfkat 20210303)
+      ini_block.reqvol = (do_i2s ? 100 : VOLMAX) ;                     // Limit to normal values (tcfkat 20210303)
     }
     muteflag = false ;                                // Stop possibly muting
 // mayk000
@@ -5811,7 +5853,8 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "rate" )                      // Rate command?
   {
-    vs1053player->AdjustRate ( ivalue ) ;             // Yes, adjust
+    if ( !do_i2s )
+      vs1053player->AdjustRate ( ivalue ) ;             // Yes, adjust
   }
   else if ( argument.startsWith ( "mqtt" ) )          // Parameter fo MQTT?
   {
@@ -6035,7 +6078,7 @@ bool handle_tft_txt()
 // Handle all I/O to VS1053B during normal playing.                                                *
 // Handles display of text, time and volume on TFT as well.                                        *
 //**************************************************************************************************
-void playtask ( void * parameter )
+void vs1053_playtask ( void * parameter )
 {
   while ( true )
   {
@@ -6109,7 +6152,10 @@ void handle_spec()
   claimSPI ( "hspec" ) ;                                      // Claim SPI bus
   if ( muteflag )                                             // Mute or not?
   {
-    vs1053player->setVolume ( 0 ) ;                           // Mute
+    if ( do_i2s )
+      i2s_setVolume( 0 );
+    else
+      vs1053player->setVolume ( 0 ) ;                           // Mute
   }
   else
   {
@@ -6117,15 +6163,18 @@ void handle_spec()
     {
 static int last_adc_vol = 0;
       int new_block_vol = (adc_delog_vol ? deLogVolume(adcvol):adcvol)/128;
-      if ( new_block_vol > VOLMAX )
-		    new_block_vol = VOLMAX;
+      if ( new_block_vol > (do_i2s ? 100 : VOLMAX) )
+		    new_block_vol = (do_i2s ? 100 : VOLMAX);
       if ( last_adc_vol != new_block_vol )
       {
         last_adc_vol = new_block_vol;
 	      ini_block.reqvol = new_block_vol;
       }
     }
-    vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
+    if ( do_i2s )
+      i2s_setVolume( ini_block.reqvol );
+    else
+      vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
   }
   if ((ini_block.adc_pos_pin != -1 ) && ( nadcpos != last_nadcpos ))
   {
@@ -6137,7 +6186,8 @@ static int last_adc_vol = 0;
   if ( reqtone )                                              // Request to change tone?
   {
     reqtone = false ;
-    vs1053player->setTone ( ini_block.rtone ) ;               // Set SCI_BASS to requested value
+    if ( !do_i2s )
+      vs1053player->setTone ( ini_block.rtone ) ;               // Set SCI_BASS to requested value
   }
   if ( time_req )                                             // Time to refresh timetxt?
   {
@@ -6226,4 +6276,144 @@ void spftask ( void * parameter )
     }
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
+}
+
+#define DEC_HELIX 1
+#include "mp3_decoder.h"
+#include "aac_decoder.h"
+#include "driver/i2s.h"
+#include "helixfuncs.h"
+//**************************************************************************************************
+//                               P L A Y T A S K ( I 2 S )                                         *
+//**************************************************************************************************
+// Play stream data from input queue. Version for I2S output or output to internal DAC.            *
+// I2S output is suitable for a PCM5102A DAC.                                                      *
+// Input are blocks with 32 bytes MP3/AAC data delivered in the data queue.                        *
+// Internal ESP32 DAC (pin 25 and 26) is used when no pin BCK is configured.                       *
+// Note that the naming of the data pin is somewhat confusing.  The data out pin in the pin        *
+// configuration is called data_out_num, but this pin should be connected to the "DIN" pin of the  *
+// external DAC.  The variable used to configure this pin is therefore called "i2s_din_pin".       *
+// If no pin for i2s_bck is configured, output will be sent to the internal DAC.                   *
+// Task will stop on OTA update.                                                                   *
+//**************************************************************************************************
+void i2s_playtask ( void * parameter )
+{
+  esp_err_t        pinss_err = ESP_FAIL ;                            // Result of i2s_set_pin
+  i2s_port_t       i2s_num = I2S_NUM_0 ;                             // i2S port number
+  i2s_config_t     i2s_config ;                                      // I2S configuration
+
+  memset ( &i2s_config, 0, sizeof(i2s_config) ) ;                    // Clear config struct
+  i2s_config.mode                   = (i2s_mode_t)(I2S_MODE_MASTER | // I2S mode (5)
+                                          I2S_MODE_TX) ;
+  i2s_config.sample_rate            = 44100 ;
+  i2s_config.bits_per_sample        = I2S_BITS_PER_SAMPLE_16BIT ;    // (16)
+  i2s_config.channel_format         = I2S_CHANNEL_FMT_RIGHT_LEFT ;   // (0)
+  #if ESP_ARDUINO_VERSION_MAJOR >= 2                                 // New version?
+    i2s_config.communication_format = I2S_COMM_FORMAT_STAND_MSB ;    // Yes, use new definition
+  #else
+    i2s_config.communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB) ;
+  #endif
+  i2s_config.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1 ;         // High interrupt priority
+  i2s_config.dma_buf_count        = 16,
+  i2s_config.dma_buf_len          = 256,
+  //i2s_config.use_apll           = false ;
+  i2s_config.tx_desc_auto_clear   = true ;                         // clear tx descriptor on underflow
+  i2s_config.fixed_mclk           = I2S_PIN_NO_CHANGE ;            // No pin for MCLK
+  //i2s_config.mclk_multiple      = (i2s_mclk_multiple_t)0 ;
+  //i2s_config.bits_per_chan      = (i2s_bits_per_chan_t)0 ;       // 0 = equal to bits per sample
+  #ifdef DEC_HELIX_INT
+    i2s_config.mode = (i2s_mode_t)(I2S_MODE_MASTER |               // Set I2S mode for internal DAC
+                                   I2S_MODE_TX |                   // (4)
+                                   I2S_MODE_DAC_BUILT_IN ) ;       // Enable internal DAC (16)
+    #if ESP_ARDUINO_VERSION_MAJOR < 2
+      i2s_config.communication_format = I2S_COMM_FORMAT_I2S_MSB ;
+    #endif
+  #endif
+  dbgprint ( "Starting I2S playtask.." ) ;
+  #ifdef DEC_HELIX_AI                                              // For AI board?
+    #define IIC_DATA 33                                            // Yes, use these I2C signals
+    #define IIC_CLK  32
+    if ( ! dac.begin ( IIC_DATA, IIC_CLK ) )                       // Initialize AI dac
+    {
+      dbgprint ( "AI dac error!" ) ;
+    }
+    pinMode ( GPIO_PA_EN, OUTPUT ) ;
+    digitalWrite ( GPIO_PA_EN, HIGH ) ;
+  #endif
+  MP3Decoder_AllocateBuffers() ;                                    // Init HELIX buffers
+  AACDecoder_AllocateBuffers() ;                                    // Init HELIX buffers
+  if ( i2s_driver_install ( i2s_num, &i2s_config, 0, NULL ) != ESP_OK )
+  {
+    dbgprint ( "I2S install error!" ) ;
+  }
+  #ifdef DEC_HELIX_INT                                              // Use internal (8 bit) DAC?
+    dbgprint ( "Output to internal DAC" ) ;                         // Show output device
+    pinss_err = i2s_set_pin ( i2s_num, NULL ) ;                     // Yes, default pins for internal DAC
+    i2s_set_dac_mode ( I2S_DAC_CHANNEL_BOTH_EN ) ;
+  #else
+    i2s_pin_config_t pin_config ;                                   // I2s pin config
+    pin_config.bck_io_num    = ini_block.i2s_bck_pin ;              // This is BCK pin
+    pin_config.ws_io_num     = ini_block.i2s_lck_pin ;              // This is L(R)CK pin
+    pin_config.data_out_num  = ini_block.i2s_din_pin ;              // This is DATA output pin
+    pin_config.data_in_num   = I2S_PIN_NO_CHANGE ;                  // No input
+    #if ESP_ARDUINO_VERSION_MAJOR >= 2
+      pin_config.mck_io_num    = I2S_PIN_NO_CHANGE ;                // MCK not used
+    #endif
+    dbgprint ( "Output to I2S, pins %d, %d and %d",                 // Show pins used for output device
+               pin_config.bck_io_num,                               // This is the BCK (bit clock) pin
+               pin_config.ws_io_num,                                // This is L(R)CK pin
+               pin_config.data_out_num ) ;                          // This is DATA output pin
+    if ( ( ini_block.i2s_bck_pin + 
+           ini_block.i2s_lck_pin +
+           ini_block.i2s_din_pin ) > 2 )                            // Check for legal pins
+    {
+      pinss_err = i2s_set_pin ( i2s_num, &pin_config ) ;            // Set I2S pins
+    }
+  #endif
+  i2s_zero_dma_buffer ( i2s_num ) ;                                 // Zero the buffer
+  if ( pinss_err != ESP_OK )                                        // Check error condition
+  {
+    dbgprint ( "I2S setpin error!" ) ;                              // Rport bad pis
+    while ( true)                                                   // Forever..
+    {
+      xQueueReceive ( dataqueue, &inchunk, 500 ) ;                  // Ignore all chunk from queue
+    }
+  }
+  while ( true )
+  {
+    if ( xQueueReceive ( dataqueue, &inchunk, 500 ) )               // Get next chunk from queue
+    {
+      switch ( inchunk.datatyp )                                    // What kind of chunk?
+      {
+        case QDATA:
+          i2s_playChunk ( i2s_num, inchunk.buf ) ;                  // Play this chunk
+          totalcount += sizeof(inchunk.buf) ;                       // Count the bytes
+          break ;
+        case QSTARTSONG:
+          dbgprint ( "Playtask start song" ) ;
+          playingstat = 1 ;                                         // Status for MQTT
+          mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
+          helixInit ( ini_block.amp_shutdown_pin,                   // Enable amplifier output
+                      ini_block.amp_shutdownx_pin);                 // Init framebuffering
+          break ;
+        case QSTOPSONG:
+          dbgprint ( "Playtask stop song" ) ;
+          playingstat = 0 ;                                         // Status for MQTT
+          i2s_stop ( i2s_num ) ;                                    // Stop DAC
+          mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
+          while ( xQueueReceive ( dataqueue, &inchunk, 0 ) ) ;      // Flush rest of queue
+          vTaskDelay ( 500 / portTICK_PERIOD_MS ) ;                 // Pause for a short time
+          break ;
+#if 0
+        case QSTOPTASK:
+          dbgprint ( "Stop Playtask" ) ;
+          i2s_stop ( i2s_num ) ;                                    // Stop DAC
+          vTaskDelete ( NULL ) ;                                    // Stop task
+          break ;
+#endif
+        default:
+          break ;
+      }
+    }
+  }
 }

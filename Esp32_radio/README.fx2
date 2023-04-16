@@ -22,6 +22,8 @@ flag_00 .. 31 = ....    # () is not default
   save_vol = true/(false)               # save vol if changed into eeprom
   tm1637_rotate = true/(false)          # tm1637 rotation 180°
   vs1053_load_usercode = (true)/false   # load special user code into vs1053
+  mute_with_stop = true/(false)         # gboy: also set mute when stop
+  sleep_cycle = <num>                   # sleep-timer (def:4909100)
 
 displays designed as additional screens (no replace of tft/oled/..)
 add additional TM1637 7Seg display
