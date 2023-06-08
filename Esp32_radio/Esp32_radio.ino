@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Sun, 14 Apr 2023 16:20:00 GMT+1"
+#define VERSION     "Thu, 08 Jun 2023 17:35:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -173,7 +173,7 @@
 //
 // Define type of local filesystem(s).  See documentation.
 //#define CH376                          // For CXH376 support (reading files from USB stick)
-//#define SDCARD                         // For SD card support (reading files from SD card)
+#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
 #define OLED                         // 64x128 I2C OLED
@@ -4861,15 +4861,17 @@ static byte oval=0;
         ht1621_showIP( ipaddress.c_str() );
         break;
       case 1:   /* memo */
+        break;
       case 17:  /* alarm */
         gboy100_m5_off=0;
         break;
       case 18:  /* snooze */
         strcpy(cmd,"mute");
-         analyzeCmd("mute");
-         break;
+        analyzeCmd( cmd );
+        break;
       case 15:  /* PWR */
-        _toggleStop();
+        strcpy(cmd,"reset");
+        analyzeCmd( cmd );
         gboy100_m5_off=0;
         break;
       case 9:  /* up */

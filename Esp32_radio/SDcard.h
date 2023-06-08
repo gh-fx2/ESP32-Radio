@@ -129,7 +129,7 @@ String getSDfilename ( String &nodeID )
       break ;                                              // All levels handled
     }
   }
-  res = String ( "localhost" ) + String ( p ) ;            // Format result
+  res = String ( "localhost/" ) + String ( p ) ;           // Format result
   dbgprint ( "Selected file is %s", res.c_str() ) ;        // Show result
   return res ;                                             // Return full station spec
 }
@@ -157,7 +157,7 @@ int listsdtracks ( const char* dirname, int level = 0, bool send = true )
   String          filename ;                            // Copy of filename for lowercase test
   uint16_t        i ;                                   // Loop control to compute single node id
   String          tmpstr ;                              // Tijdelijke opslag node ID
-  const char*     p ;                                   // Points to filename in directory
+//  const char*     p ;                                   // Points to filename in directory
 
   if ( strcmp ( dirname, "/" ) == 0 )                   // Are we at the root directory?
   {
@@ -226,9 +226,10 @@ int listsdtracks ( const char* dirname, int level = 0, bool send = true )
         }
         if ( send )                                     // Need to add to string for webinterface?
         {
-          p = file.name() + ldirname ;                  // Point to filename passed directoryname
-          SD_outbuf += tmpstr +                         // Form line for mp3play_html page
-                       utf8ascii ( p ) ;                // Filename
+          //p = file.name() + ldirname;                  // Point to filename passed directoryname
+          SD_outbuf += tmpstr +                          // Form line for mp3play_html page
+                       dirname +                         // need '/'
+                       utf8ascii ( file.name() ) ;       // Filename
                        String ( "\n" ) ;
         }
         SD_nodelist += tmpstr + String ( "\n" ) ;       // Add to nodelist
