@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Thu, 08 Jun 2023 17:35:00 GMT+1"
+#define VERSION     "Thu, 17 Aug 2023 07:53:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -2310,6 +2310,8 @@ bool connectwifi()
       tm1637_showIP( ipaddress.c_str() );
       ht1621_showIP( ipaddress.c_str() );
     }
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(true);
 
     if ( webauth_string )
       webauth( webauth_string );
