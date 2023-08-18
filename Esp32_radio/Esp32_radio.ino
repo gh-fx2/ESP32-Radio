@@ -163,7 +163,7 @@
 // check version for update.  The format must be exactly as specified by the HTTP standard!
 // KA_PCB - default pinout for KaRadio32-PCB
 #define KA_PCB
-#define VERSION     "Thu, 17 Aug 2023 07:53:00 GMT+1"
+#define VERSION     "Thu, 18 Aug 2023 07:53:00 GMT+1"
 // set date in about.html too !
 // ESP32-Radio can be updated (OTA) to the latest version from a remote server.
 // The download uses the following server and files:
@@ -989,7 +989,7 @@ bool VS1053::testComm ( const char *header )
     dbgprint ( "This is not a VS1053, "                 // Report the wrong chip
                "but a VS%d instead!",
                vstype[r1] ) ;
-    okay = false ;
+    okay = r1==3? true:false ;
   }
   return ( okay ) ;                                     // Return the result
 }
