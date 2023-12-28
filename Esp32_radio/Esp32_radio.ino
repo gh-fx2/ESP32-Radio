@@ -173,7 +173,7 @@
 //
 // Define type of local filesystem(s).  See documentation.
 //#define CH376                          // For CXH376 support (reading files from USB stick)
-#define SDCARD                         // For SD card support (reading files from SD card)
+//#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
 #define OLED                         // 64x128 I2C OLED
@@ -4861,6 +4861,7 @@ static byte oval=0;
       case 16:  /* mode */
         /* show-ip */
         ht1621_showIP( ipaddress.c_str() );
+        ht1621_showRSSI( WiFi.RSSI() );
         break;
       case 1:   /* memo */
         break;

@@ -162,6 +162,18 @@ void grundigBoy100_fillPosData( const char *buf, uint8_t *data )
   }
 }
 
+void HT1621Display::grundigBoy100_showRSSI( int sec )
+{
+  uint8_t data[9];
+  memset(data,0,9);
+  data[1] = 0x02; //  :
+  data[2] = 0x4E; // S
+  data[3] = 0x40; // S
+  grundigBoy100_putTimeNum( sec, 3, data );
+  data[6] |=2 ;   // M
+  grundigBoy100_addTimed( data, 2000, 5, 7 );
+}
+
 void HT1621Display::grundigBoy100_showIP( const char *ip )
 {
   uint8_t  data[9];

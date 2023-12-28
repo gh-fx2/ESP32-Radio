@@ -45,6 +45,7 @@ public:
   void denverTr36_infoUpdate( void );
   void grundigBoy100_showIP( const char *in );
   void grundigBoy100_showPreset( int preset );
+  void grundigBoy100_showRSSI( int sec );
   void grundigBoy100_displayTime ( const char* str );
   void grundigBoy100_loop( void );
   void grundigBoy100_addTimed( uint8_t *data, uint32_t ms, uint8_t kind, uint8_t nbytes );
@@ -206,6 +207,20 @@ void ht1621_showIP( const char *ip )
       break;
   case HT1621_T_GRUNDIG_BOY100 :
       ht1621->grundigBoy100_showIP( ip );
+      break;
+  }
+}
+
+void ht1621_showRSSI( int value )
+{
+  int i, xv[6] = { -30, -55, -67, -70, -80, -90 };
+  if ( !ht1621 )
+    return;
+  for ( i=0; i<6 && ( value < xv[i] ); i++);
+  switch( ht1621->_type )
+  {
+  case HT1621_T_GRUNDIG_BOY100 :
+      ht1621->grundigBoy100_showRSSI( i );
       break;
   }
 }
