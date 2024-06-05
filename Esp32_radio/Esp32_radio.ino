@@ -827,6 +827,7 @@ void  LoadUserCode( const unsigned short* plugin,uint16_t size);
     // time a new song starts.
     inline bool playChunk ( uint8_t* data,               // Play a chunk of data.  Copies the data to
                             size_t len ) ;               // the chip.  Blocks until complete.
+    bool isOkay();
     // Returns true if more data can be added
     // to fifo
     void     stopSong() ;                                // Finish playing a song. Call this after
@@ -1022,7 +1023,7 @@ void VS1053::begin()
   //printDetails ( "20 msec after reset" ) ;
   if ( testComm ( "Slow SPI, Testing VS1053 read/write registers..." ) )
   {
-	if ( vs1053_load_usercode )
+	  if ( vs1053_load_usercode )
        LoadUserCodes();
     // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
     // when playing MP3.  You can modify the board, but there is a more elegant way:
@@ -1099,6 +1100,11 @@ void VS1053::startSong()
 bool VS1053::playChunk ( uint8_t* data, size_t len )
 {
   return okay && sdi_send_buffer ( data, len ) ;        // True if more data can be added to fifo
+}
+
+bool VS1053::isOkay()
+{
+  return okay;
 }
 
 void VS1053::stopSong()
@@ -5390,6 +5396,7 @@ void handlebyte_ch ( uint8_t b )
 String getContentType ( String filename )
 {
   if      ( filename.endsWith ( ".html" ) ) return "text/html" ;
+  else if ( filename.startsWith( "debug") ) return "text/html" ;
   else if ( filename.endsWith ( ".png"  ) ) return "image/png" ;
   else if ( filename.endsWith ( ".gif"  ) ) return "image/gif" ;
   else if ( filename.endsWith ( ".jpg"  ) ) return "image/jpeg" ;
@@ -5414,6 +5421,7 @@ void handleFSf ( const String& pagename )
   const char*            p ;
   int                    l ;                            // Size of requested page
   int                    TCPCHUNKSIZE = 1024 ;          // Max number of bytes per write
+  char                   dbgtext[ TCPCHUNKSIZE ];
 
   dbgprint ( "FileRequest received %s", pagename.c_str() ) ;
   ct = getContentType ( pagename ) ;                    // Get content type
@@ -5459,6 +5467,16 @@ void handleFSf ( const String& pagename )
     {
       p = (char*)favicon_ico ;
       l = sizeof ( favicon_ico ) ;
+    }
+    else if ( pagename.indexOf( "debug") >= 0 )     // internal generated page
+    {
+      p = (char*) dbgtext;
+      l = sprintf(dbgtext,"<html><body><p>CPU %d at %d MHz<br>Free memory %d<br>RSSI=%d<br>vs1053=%s</body></html>",
+             xPortGetCoreID(),
+             ESP.getCpuFreqMHz(),
+             ESP.getFreeHeap(),
+             WiFi.RSSI(),
+             vs1053player->isOkay()?"run":"failed" ) ;
     }
     else
     {
