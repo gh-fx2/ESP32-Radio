@@ -3670,6 +3670,7 @@ void setup()
 
   if ( !do_i2s )
   {
+    delay(500);   /* vs1053 may need a lot time for boot */
     dbgprint("VS1053 mode");
     SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,

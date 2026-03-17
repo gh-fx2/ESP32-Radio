@@ -100,7 +100,7 @@ class TM1637Display
 	uint8_t				m_pinClk;
 	uint8_t				m_pinDIO;
 	uint8_t				m_brightness;
-	uint8_t				m_bitDelay;
+	uint32_t		  m_bitDelay;
 	uint32_t			m_value;
 	
 

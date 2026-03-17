@@ -1,7 +1,9 @@
 
 #define ICACHE_STORE_TYPEDEF_ATTR __attribute__((aligned(4),packed))
 #define ICACHE_STORE_ATTR __attribute__((aligned(4)))
+#ifndef ICACHE_RAM_ATTR
 #define ICACHE_RAM_ATTR __attribute__((section(".iram0.text")))
+#endif
 
 // 117
 const unsigned short admix[]    = { /* Compressed plugin */
