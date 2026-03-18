@@ -1013,14 +1013,14 @@ void VS1053::begin()
     pinMode ( shutdownx_pin,   OUTPUT ) ;
   }
   output_enable ( false ) ;                            // Disable amplifier through shutdown pin(s)
-  delay ( 100 ) ;
+  delay ( 500 ) ;
   // Init SPI in slow mode ( 0.2 MHz )
   VS1053_SPI = SPISettings ( 200000, MSBFIRST, SPI_MODE0 ) ;
   SPI.setDataMode ( SPI_MODE0 ) ;
   SPI.setBitOrder ( MSBFIRST ) ;
   //printDetails ( "Right after reset/startup" ) ;
-  delay ( 20 ) ;
-  //printDetails ( "20 msec after reset" ) ;
+  delay ( 50 ) ;
+  //printDetails ( "50 msec after reset" ) ;
   if ( testComm ( "Slow SPI, Testing VS1053 read/write registers..." ) )
   {
 	  if ( vs1053_load_usercode )
@@ -3670,7 +3670,7 @@ void setup()
 
   if ( !do_i2s )
   {
-    delay(500);   /* vs1053 may need a lot time for boot */
+    delay(200);
     dbgprint("VS1053 mode");
     SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
