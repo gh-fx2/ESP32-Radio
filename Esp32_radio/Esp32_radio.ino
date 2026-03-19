@@ -270,6 +270,7 @@ String      utf8ascii ( const char* s ) ;
 uint32_t    ssconv ( const uint8_t* bytes ) ;
 int         gboy100_m5_off=0;
 uint32_t    gboy100_sleep=0;
+int8_t      first_power=0;
 
 
 
@@ -504,6 +505,7 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 std::vector<keyname_t> keynames ;                        // Keynames in NVS
 uint8_t                 enc_direct_switch = 1;           // rotary encoder change preset without click
+uint8_t                 double_boot = 0;                 // reboot again - if boot-reason is power_on
 uint8_t                 rotate_screen = 0;               // flip screen 180°
 uint8_t                 tm1637_rotate = 0;               // flip tm1637-display
 // Rotary encoder stuff
@@ -1013,7 +1015,7 @@ void VS1053::begin()
     pinMode ( shutdownx_pin,   OUTPUT ) ;
   }
   output_enable ( false ) ;                            // Disable amplifier through shutdown pin(s)
-  delay ( 500 ) ;
+  delay ( 100 ) ;
   // Init SPI in slow mode ( 0.2 MHz )
   VS1053_SPI = SPISettings ( 200000, MSBFIRST, SPI_MODE0 ) ;
   SPI.setDataMode ( SPI_MODE0 ) ;
@@ -2722,6 +2724,8 @@ void readFlags()
         val.trim();
         if ( para.startsWith("enc_direct_switch") )
            enc_direct_switch = BoolOfVal(val.c_str());
+        else if ( para.startsWith("double_boot") )
+           double_boot = BoolOfVal(val.c_str());
         else if ( para.startsWith("adc_vol_reverse") )
            adc_vol_reverse = BoolOfVal(val.c_str());
         else if ( para.startsWith("rotate_screen") )
@@ -3577,6 +3581,8 @@ void setup()
   const char*               dtyp = "Display type is %s" ;
   const char*               wvn = "Include file %s_html has the wrong version number! "
                                   "Replace header file." ;
+//  esp_reset_reason_t        reason;
+  first_power = esp_reset_reason()==ESP_RST_POWERON?1:0;
 
   Serial.begin ( 115200 ) ;                              // For debug
   Serial.println() ;
@@ -3670,7 +3676,6 @@ void setup()
 
   if ( !do_i2s )
   {
-    delay(200);
     dbgprint("VS1053 mode");
     SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
@@ -3694,7 +3699,7 @@ void setup()
                       isr_IR, CHANGE ) ;
   }
   tm1637_begin();
-  ht1621_begin( ini_block.ht1621_cs_pin,  ini_block.ht1621_wr_pin,ini_block.ht1621_data_pin,ht1621_lcd_type);
+  ht1621_begin( ini_block.ht1621_cs_pin,  ini_block.ht1621_wr_pin,ini_block.ht1621_data_pin,ht1621_lcd_type, first_power);
 
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
@@ -3727,14 +3732,19 @@ void setup()
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
 
+  if ( double_boot && first_power )
+  {
+    ESP.restart();
+    delay(10);
+  }
 /* disable brown-out detection */
   uint32_t brown_reg_temp = READ_PERI_REG(RTC_CNTL_BROWN_OUT_REG);
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG,0);
 
   WiFi.disconnect();                                     // After restart router could still  
-  delay ( 500 ) ;                                        // keep old connection
+  delay ( 50 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
-  delay ( 500 ) ;                                        // ??
+  delay ( 50 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
 
   readprefs ( false ) ;                                  // Read preferences
@@ -3807,7 +3817,7 @@ void setup()
   timerAttachInterrupt ( timer, &timer100, true ) ;      // Call timer100() on timer alarm
   timerAlarmWrite ( timer, 100000, true ) ;              // Alarm every 100 msec
   timerAlarmEnable ( timer ) ;                           // Enable the timer
-  delay ( 1000 ) ;                                       // Show IP for a while
+  delay ( 750 ) ;                                        // Show IP for a while
   configTime ( ini_block.clk_offset * 3600,
                ini_block.clk_dst * 3600,
                ini_block.clk_server.c_str() ) ;          // GMT offset, daylight offset in seconds
@@ -4759,6 +4769,11 @@ void mp3loop()
       hostreq = true ;                                    // autoplay: Request UNSTOP
       aplaycnt=0;
     }
+  }
+  if ( double_boot && first_power )
+  {
+    hostreq = 0;
+    resetreq=1;
   }
   if ( hostreq )                                          // New preset or station?
   {

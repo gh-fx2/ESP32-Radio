@@ -5294,7 +5294,7 @@ void GenerateNoiseVector(int *coef, int *last, int nVals)
     int i;
 
     for (i = 0; i < nVals; i++)
-        coef[i] = ((int32_t)Get32BitVal((uint32_t *)last)) >> 16;
+        coef[i] = ((int32_t)Get32BitVal((unsigned int*)last)) >> 16;
 }
 
 /***********************************************************************************************************************
@@ -8523,7 +8523,7 @@ int DecodeHuffmanScalar(const signed int *huffTab, const HuffInfo_t *huffTabInfo
  **********************************************************************************************************************/
 int DecodeOneSymbol(int huffTabIndex) {
 
-    int nBits, val;
+    int32_t nBits, val;
     unsigned int bitBuf;
     const HuffInfo_t *hi;
 

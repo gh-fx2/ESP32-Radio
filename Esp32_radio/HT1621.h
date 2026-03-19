@@ -31,7 +31,7 @@ typedef void (*t1Proc)( char *p1 );
 class  HT1621Display
 {
 public:
-	HT1621Display( int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t );
+	HT1621Display( int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t, int8_t will_reboot );
   void loop();
   int _type;
 
@@ -68,11 +68,11 @@ private:
 
 HT1621Display* ht1621 = NULL;
 
-void ht1621_begin( int8_t cs, int8_t wr, int8_t data, uint8_t type )
+void ht1621_begin( int8_t cs, int8_t wr, int8_t data, uint8_t type, int8_t will_reboot )
 {
   if (( cs >= 0 ) && ( wr >= 0 ) && ( data >= 0 ) && type )
   {
-    ht1621 = new HT1621Display( cs, wr, data, type );
+    ht1621 = new HT1621Display( cs, wr, data, type, will_reboot );
   }
 }
 
@@ -93,7 +93,7 @@ void HT1621Display::config()
 	wrCMD(LCDON);
 }
 
-HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t)
+HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t, int8_t will_reboot)
 {
   uint8_t data[] = { 0,0,0,0,0,0,0,0
                       ,0,0,0,0,0,0,0,0
@@ -123,7 +123,7 @@ HT1621Display::HT1621Display(int8_t cs_p, int8_t wr_p, int8_t data_p, uint8_t t)
  else if ( t == HT1621_T_GRUNDIG_BOY100 )
  {
    data[2] = 0x04;
-   data[4] = 0x40;    // 0x84 = 2,  0x0C = 1
+   data[4] = will_reboot ? 0x00 : 0x40;    // 0x84 = 2,  0x0C = 1
    data[5] = 0x04;
    update(data,16);
  }

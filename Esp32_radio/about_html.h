@@ -29,7 +29,7 @@ const char about_html[] PROGMEM = R"=====(
   <a target="blank" href="https://github.com/gh-fx2/ESP32-Radio/tree/fx2-radio-kanne">Mods: fx2</a><br>
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
 	App (Android): <a target="blank" href="https://play.google.com/store/apps/details?id=com.thunkable.android.sander542jochems.ESP_Radio">Sander Jochems</a><br>
-	Date: 18 Mar 2026 - v1</p>
+	Date: 19 Mar 2026 - v2</p>
  </body>
 </html>
 )=====" ;
