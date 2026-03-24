@@ -449,6 +449,7 @@ bool              mqtt_on = false ;                      // MQTT in use
 bool              config_autoplay = false;
 bool              save_volume = true;
 bool              vs1053_load_usercode = false;
+bool              boot_on_failed_vs1053 = false;
 bool              autoplay = false;
 uint16_t          aplaycnt=0;
 String            networks ;                             // Found networks in the surrounding
@@ -2750,6 +2751,8 @@ void readFlags()
            save_volume = BoolOfVal(val.c_str());
         else if ( para.startsWith("vs1053_load_usercode") )
            vs1053_load_usercode = BoolOfVal(val.c_str());
+        else if ( para.startsWith("force_vs1053") )
+           boot_on_failed_vs1053 = BoolOfVal(val.c_str());
         else if ( para.startsWith("max_preset") )
         {
            maxpreset = val.toInt();
@@ -4774,6 +4777,12 @@ void mp3loop()
   {
     hostreq = 0;
     resetreq=1;
+  }
+  else if ( boot_on_failed_vs1053 && !vs1053player->isOkay() )
+  {
+    hostreq = 0;
+    resetreq=1;
+    ht1621_showPreset( 111 );                             // show '111' in dpy of boy100
   }
   if ( hostreq )                                          // New preset or station?
   {
