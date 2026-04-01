@@ -4778,12 +4778,7 @@ void mp3loop()
     hostreq = 0;
     resetreq=1;
   }
-  else if ( boot_on_failed_vs1053 && !vs1053player->isOkay() )
-  {
-    hostreq = 0;
-    resetreq=1;
-    ht1621_showPreset( 111 );                             // show '111' in dpy of boy100
-  }
+
   if ( hostreq )                                          // New preset or station?
   {
     hostreq = false ;
@@ -4979,6 +4974,15 @@ void loop()
     update_software ( "lstmods",                    // Update sketch from remote file
                       UPDATEHOST, BINFILE ) ;
     resetreq = true ;                               // And reset
+  }
+  if ( ( millis() > 5000 ) && boot_on_failed_vs1053 )
+  {
+    boot_on_failed_vs1053 = 0;
+    if ( !vs1053player->isOkay() )
+    {
+      resetreq = true ;
+      ht1621_showPreset( 111 );                             // show '111' in dpy of boy100
+    }
   }
   if ( resetreq )                                   // Reset requested?
   {
